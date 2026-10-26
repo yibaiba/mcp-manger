@@ -14,6 +14,8 @@
 
 详细浏览器范围、官方示例入口差异及复现命令见 [Apps 浏览器验收](apps-browser.md)。Compose 复现为 `node scripts/check.mjs 600 node scripts/verify-compose.mjs`；最初的脚本准备曾因临时密钥编码和页面挂载点断言写错而失败，均修正后重新完整执行，没有将失败尝试记为通过。
 
+补充全屏复核：浏览器实际测得宿主边界为窗口 0,0、1440 × 1100，进入和退出全屏保留相同 iframe 与 App 状态。此前整页截图因页面滚动位置看似偏移，实际布局没有故障；已补入几何断言，并改用窗口截图保存全屏证据，没有为截图误判修改产品布局。
+
 对照当前 MCPHub：Windows 使用 tree-kill/taskkill，平台仍按已确认方案使用共享 Go Job Object；OAuth 参考其 discovery/issuer 持久化与回调校验，但直连保留平台官方 SDK、Pi 保留独立授权文件及刷新队列；MCPHub 的 Apps 能力/可见性辅助代码没有浏览器宿主。源码对照不替代 Windows、Cloudflare/Vercel 授权或模型实测，也没有引入旧项目源码或 token。
 
 剩余条件：公网 Sandbox/HTTPS、真实模型任务及其取消链、Windows Job Object/登录启动、Cloudflare/Vercel OAuth、两台物理设备和全部外部客户端。以下 2026-10-26 的未通过项是历史检查点；Apps 本地宿主和 Docker 本地启动以本节为准。

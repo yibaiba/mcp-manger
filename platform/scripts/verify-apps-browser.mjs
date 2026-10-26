@@ -54,21 +54,61 @@ try {
   await app.getByRole('button', { name: '调用 App 专用工具' }).click();
   await app.locator('#status').filter({ hasText: 'App 工具调用成功：' }).waitFor();
   console.log('PASS: app-only tool called through the AppBridge');
+  const originalFrames = page.frames();
   await page.getByRole('button', { name: '全屏', exact: true }).click();
   await page.getByRole('button', { name: '退出全屏', exact: true }).waitFor();
   await app.locator('html[data-display-mode="fullscreen"]').waitFor({ state: 'attached' });
+  const layout = await page.locator('iframe[title="MCP App"]').evaluate((iframe) => {
+    const host = iframe.parentElement;
+    const rect = host.getBoundingClientRect();
+    return {
+      position: getComputedStyle(host).position,
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+      viewport: { width: innerWidth, height: innerHeight },
+    };
+  });
+  assert.deepEqual(layout, {
+    position: 'fixed',
+    x: 0,
+    y: 0,
+    ...layout.viewport,
+    viewport: layout.viewport,
+  });
+  assert.deepEqual(
+    page.frames(),
+    originalFrames,
+    'Fullscreen must preserve the running App frames',
+  );
   await page.evaluate(() => document.documentElement.classList.add('dark'));
   await app.locator('html[data-host-theme="dark"]').waitFor({ state: 'attached' });
   await page.evaluate(() => document.documentElement.classList.remove('dark'));
   await app.locator('html[data-host-theme="light"]').waitFor({ state: 'attached' });
-  await page.screenshot({ path: '.data/browser-acceptance/success.png', fullPage: true });
+  await page.screenshot({ path: '.data/browser-acceptance/success.png' });
   await page.getByRole('button', { name: '退出全屏', exact: true }).click();
+  await app.locator('html[data-display-mode="inline"]').waitFor({ state: 'attached' });
+  assert.equal(
+    await page
+      .locator('iframe[title="MCP App"]')
+      .evaluate((iframe) => getComputedStyle(iframe.parentElement).position),
+    'static',
+  );
+  assert.deepEqual(
+    page.frames(),
+    originalFrames,
+    'Inline mode must preserve the running App frames',
+  );
+  await app.locator('#status').filter({ hasText: 'App 工具调用成功：' }).waitFor();
   await page.getByRole('button', { name: '关闭视图', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'App 视图已结束' }).waitFor();
   assert.equal(page.frames().length, 1);
   assert.ok(logs.includes('Platform acceptance App teardown acknowledged'));
   assert.deepEqual(errors, []);
-  console.log('PASS: fullscreen, close and iframe teardown, no browser errors');
+  console.log(
+    'PASS: viewport fullscreen geometry, same App frames/state, close and teardown, no browser errors',
+  );
 } catch (error) {
   console.error(
     'Frames:',
