@@ -26,6 +26,8 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY}
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       PORT: 4300
+      APPS_PORT: 4302
+      APPS_ORIGIN: ${APPS_ORIGIN:-https://apps.${DOMAIN}}
       DATA_DIR: /app/.data
       PI_ENABLED: ${PI_ENABLED:-false}
       PI_MODEL_PROVIDER: ${PI_MODEL_PROVIDER:-}
@@ -44,6 +46,7 @@ services:
       target: web
     environment:
       DOMAIN: ${DOMAIN:?Set DOMAIN}
+      APPS_DOMAIN: ${APPS_DOMAIN:-apps.${DOMAIN}}
     ports:
       - '80:80'
       - '443:443'

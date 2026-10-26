@@ -5,7 +5,7 @@
 默认单实例，没有 Redis、消息队列或多副本路由。MCP 会话和在线设备请求由服务进程维护；重启会中断请求并记录结果未知，不自动重放。
 
 1. 云主机安装 Docker/Compose，DNS 指向主机，开放 80/443（Caddy 自动申请证书）。
-2. `cp .env.example .env`；设置 `DOMAIN`、`PUBLIC_URL=https://你的域名`、`WEB_ORIGIN=https://你的域名`、随机 `POSTGRES_PASSWORD`（建议 32 字节 hex）、`BETTER_AUTH_SECRET`、32 字节 base64 `ENCRYPTION_KEY`。数据库连接由 Compose 注入。不要在仓库提交 `.env`。
+2. `cp .env.example .env`；设置 `DOMAIN`、`PUBLIC_URL=https://你的域名`、`WEB_ORIGIN=https://你的域名`、随机 `POSTGRES_PASSWORD`（建议 32 字节 hex）、`BETTER_AUTH_SECRET`、32 字节 base64 `ENCRYPTION_KEY`。数据库连接由 Compose 注入。将示例的本地 `APPS_ORIGIN` 改为 `https://apps.你的域名`，并设置 `APPS_DOMAIN=apps.你的域名`，为其配置 DNS；不要把开发默认 localhost 地址留在生产配置中。不要在仓库提交 `.env`。
 3. 首次临时启用 `ALLOW_REGISTRATION=true`，注册后关闭并重建 server 容器。
 
 ```sh
@@ -17,6 +17,14 @@ docker compose logs --tail=100 server
 ```
 
 `/health` 会检查数据库。PostgreSQL 不发布公网端口；Caddy 转发 `/api/*`、`/mcp/*`、`/.well-known/*` 和 WebSocket。数据库、产物、Pi 会话和证书分别存放在持久卷。设备连接器在实际设备运行，不在服务器容器中启动桌面软件。
+
+Apps 使用单独源站，Caddy 将 APPS_DOMAIN 代理至 server:4302，仅暴露 Sandbox Proxy 和一次性 iframe 文档，不暴露管理 API。APPS_ORIGIN 必须与 PUBLIC_URL/WEB_ORIGIN 不同源；自定义域名时同步修改三项配置与 DNS。开发 `pnpm dev` 自动启动 4302，不需要单独启动命令。实际公网域名、证书、iframe/CSP 仍需部署验收。
+
+## 升级与回退
+
+应用迁移 0003/0004 前先停止服务并备份数据库、整个 DATA_DIR、SQL 与 Pi 加密密钥。新增授权绑定、目录快照和加密交互状态；旧配置缺省字段保持原有默认行为，不迁移 MCPHub token。旧连接器继续原功能，新会话/授权/交互能力要求升级连接器。Windows stdio host 与连接器必须使用相同版本。
+
+运行中的工具、交互和 App 不支持跨重启恢复；升级后明确中断，禁止通过重新派发恢复。回退旧程序时恢复升级前数据库及持久目录，不假设旧程序能读取新配置。当前开发环境已备份数据库和 .env 后执行迁移；完整文件卷与恢复演练尚未验收。
 
 Pi 已包含在默认镜像中；Pi MCP 桥接无需启用推理或配置模型。仅执行内置 Agent 任务时在 `.env` 设置 `PI_ENABLED=true` 并配置模型，执行 `docker compose up -d server` 更新容器配置，无需重新安装 Pi 或重建镜像。模型供应商密钥需通过自己的 Compose override 的 `environment` 或 secret manager 注入；默认 Compose 不把全部宿主机环境传入容器。Pi OAuth 还需 `PI_MCP_ADAPTER_OAUTH_FILE_KEY`，见 [Pi](pi.md)。
 

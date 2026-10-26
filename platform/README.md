@@ -23,7 +23,7 @@ pnpm db:migrate
 pnpm dev
 ```
 
-管理界面 <http://localhost:4301>，API <http://localhost:4300>。在“连接”选择平台直连、Pi 桥接或设备连接器，添加 Streamable HTTP、旧版 SSE 或 stdio 服务，点击“连接 / 刷新目录”，再到“工具目录”实际调用。stdio 命令在所选执行位置运行：平台直连/Pi 使用平台主机（Docker 的 server 容器），设备连接器使用所选设备。服务返回错误会直接展示；连接配置中的请求头和环境变量加密保存在数据库，不在列表中返回。
+管理界面 <http://localhost:4301>，API <http://localhost:4300>，Apps 隔离服务 <http://localhost:4302>，由同一后端启动。在“连接”选择平台直连、Pi 桥接或设备连接器，添加 Streamable HTTP、旧版 SSE 或 stdio 服务，点击“连接 / 刷新目录”，再到“工具目录”实际调用。也可选择独立的 OpenAPI 来源，预览并选择操作发布。stdio 命令在所选执行位置运行：平台直连/Pi 使用平台主机（Docker 的 server 容器），设备连接器使用所选设备。服务返回错误会直接展示；连接配置中的请求头和环境变量加密保存在数据库，不在列表中返回。
 
 开发启动从 `platform/.env` 读取配置；源代码生产启动 `pnpm start`，不依赖工作目录。`pnpm build` 验证后端编译并产出前端静态文件。后端部署使用 `tsx` 源码入口，以支持按需加载内置 Pi 运行时；不要直接运行 `apps/server/dist`。
 
@@ -37,6 +37,11 @@ pnpm dev
 - Skills ZIP/固定 Git commit 导入、内容哈希不可变版本、工具依赖检查、设备分发、指定版本回滚和本地修改冲突保护。
 - 文件流式上传/下载、SHA-256 校验、设备间转交；Agent 通过同一配置授权的下载接口获取结果。
 - 旧 MCPHub 配置预览与导入；不会迁移 OAuth 凭证。
+- 分身份授权绑定、按入口/客户端能力隔离的运行会话和目录快照、显式动态请求头转发；账号间不共享 Cookie。
+- 托管进程树退出、按需启动、闲置休眠、健康检查和显式恢复；默认不开启休眠、探测或恢复。
+- 14 种客户端配置导出、适用的 CLI 命令、上游服务说明与配置说明透传。
+- OpenAPI 3.0/3.1 JSON/YAML 导入、操作预览、参数/认证组合、文件产物流转和真实 HTTP 执行。
+- Form/URL Elicitation、新旧协议转换；外部 Apps 转发和工具页/Pi 任务页的官方 AppBridge 宿主。浏览器及供应商验收状态单独记录。
 
 实现与实机验收不是同一件事。Windows、桌面软件、供应商 OAuth、Claude Code 加载 Skill 和真实模型任务的验收状态见 [验证记录](docs/verification.md)。
 
@@ -46,7 +51,7 @@ pnpm dev
 pnpm check-types
 pnpm lint
 pnpm build
-pnpm test                   # 使用真实 PostgreSQL；核心、Pi 与协议能力三组，各进程硬超时 60 秒
+pnpm test                   # 使用真实 PostgreSQL；五组顺序执行，每个进程硬超时 60 秒
 cd connector
 go test -timeout 60s ./...
 go vet ./...
@@ -65,5 +70,7 @@ pnpm test:pi                # 真实 Pi SDK 桥接；不调用模型，硬超时
 - [内置 Pi 配置与验收](docs/pi.md)
 - [验证记录和待验收项](docs/verification.md)
 - [MCPHub 参考与迁移记录](docs/mcphub-reference.md)
+- [身份、生命周期、OpenAPI、交互与 Apps](docs/capabilities.md)
+- [客户端配置格式与核对来源](docs/client-configurations.md)
 
 脚手架与依赖锁定信息在 `bts.jsonc` 和 `pnpm-lock.yaml`。首次使用 `create-better-t-stack@3.10.0`，生成前核对了 CLI 参数；较新脚手架要求更高 pnpm 版本，因此未升级本仓库规定的 pnpm。

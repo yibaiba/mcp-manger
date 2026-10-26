@@ -12,3 +12,7 @@
     file_server
   }
 }
+
+{$APPS_DOMAIN} {
+  reverse_proxy server:4302
+}

@@ -4,7 +4,7 @@
 
 - 平台登录：Better Auth cookie，`/api/v1/auth/*`；管理写操作需匹配 `Origin`。
 - 外部 Agent：`Authorization: Bearer <接入密钥或 OAuth access token>`；入口 `/mcp/:profileId`。每次列目录、调用、读取和下载均重新检查当前授权及配置，撤销立即生效。
-- 上游 MCP：官方 SDK OAuth，凭证绑定用户与连接，加密持久化。Pi 连接由独立 Pi 进程管理 OAuth，彼此不互用 token。
+- 上游 MCP：官方 SDK OAuth，凭证绑定用户、连接与授权身份，加密持久化。Pi 连接由 Pi 管理 OAuth，彼此不互用 token。默认沿用连接账号；独立身份模式按接入密钥、OAuth grant 或 Pi 配置身份隔离。
 
 创建配置时明确选择工具、Prompts/Resources/模板、Skill 版本和可下载的产物 ID；未选择的工具不能调用。标识由连接 ID 和原始工具名派生，两个同名工具不会误路由。内部 Pi 直接调用同一 InvocationService，不通过网关 HTTP 回环；调用记录包括执行位置、连接、设备和状态，不记录完整参数或输出。
 
@@ -34,29 +34,34 @@ tools/prompts/resources 的 `list_changed` 触发目录刷新后，按配置授�
 
 HTTP/stdio 上游使用 SDK 自动协商，SSE 固定旧协议；连接列表记录实际协议版本和上游 capabilities。stdio 自动协商可能由官方 SDK 启动一个短暂的独立探测子进程；探测不执行工具，但启动命令本身仍需适合重复启动。
 
-Schema 使用官方 AJV 按 `$schema` 选择 draft-07、2019-09、2020-12；无效 Schema 在发现阶段明确失败，输入不合法不派发调用，输出不合法明确报告且不重放。合法布尔子 Schema 在旧客户端目录中等价转换为 `{}` / `{not:{}}`，数据库与现代客户端保留原定义；不修改 enum/default 等数据字段。本次未实现可选的 MCP Tasks、Apps UI 或交互式输入能力，不广告未支持的能力。
+Schema 使用官方 AJV 按 `$schema` 选择 draft-07、2019-09、2020-12；无效 Schema 在发现阶段明确失败，输入不合法不派发调用，输出不合法明确报告且不重放。合法布尔子 Schema 在旧客户端目录中等价转换为 `{}` / `{not:{}}`，数据库与现代客户端保留原定义；不修改 enum/default 等数据字段。已实现 Elicitation 与 Apps；仍不广告可选 MCP Tasks 扩展。交互中间结果不按最终工具输出 Schema 校验。
 
 协议依据：[MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28)、[TypeScript SDK v2](https://ts.sdk.modelcontextprotocol.io/v2/)。
 
 ## 管理接口 `/api/v1`
 
-| 功能                    | 方法与路径                                                                                                                 |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| 当前用户 / 可选模块状态 | `GET /me`                                                                                                                  |
-| 设备                    | `GET /devices`、`POST /devices/pairings`、`POST /devices/pair`、`DELETE /devices/:id`                                      |
-| 连接                    | `GET/POST /connections`、`POST /connections/:id/discover`、`POST /connections/:id/stop`                                    |
-| 工具                    | `GET /tools`、`POST /tools/:id/call`（`{arguments:{...}}`）                                                                |
-| 内容目录                | `GET /catalog`、`POST /catalog/prompts/:id/get`、`POST /catalog/resources/read`                                            |
-| Agent 配置              | `GET/POST /profiles`、`PUT /profiles/:id`（name/toolIds/contentIds/skillVersionIds/artifactIds）                           |
-| 接入密钥                | `POST /profiles/:id/keys`、`GET /profiles/keys/all`、`DELETE /profiles/keys/:id`                                           |
-| 上游授权                | `GET /connections/:id/oauth`、`POST .../start`、`GET .../callback`、`POST .../complete`（redirectUrl）、`DELETE .../oauth` |
-| Agent OAuth             | `POST /oauth/register`、`GET /oauth/authorize`、`POST /oauth/consent`、`POST /oauth/token`、`POST /oauth/revoke`           |
-| OAuth grants            | `GET /oauth/grants`、`DELETE /oauth/grants/:id`                                                                            |
-| Skills                  | `GET/POST /skills`、`POST /skills/zip`、`POST /skills/git`、`GET /skills/:id/export`、`POST /skills/:id/install`           |
-| 产物                    | `GET/POST /artifacts`、`GET /artifacts/:id/content`、`POST /artifacts/transfers`                                           |
-| 记录                    | `GET /calls`、`POST /calls/:id/cancel`、`GET /transfers`、`GET /installations`                                             |
-| Pi                      | `GET/POST /tasks`、`POST /tasks/:id/cancel`                                                                                |
-| 导入                    | `POST /import/preview`、`POST /import/apply`（旧 mcpServers + 本地 deviceId；预览逐项返回 errors/warnings）                |
+| 功能                    | 方法与路径                                                                                                                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 当前用户 / 可选模块状态 | `GET /me`                                                                                                                                                               |
+| 设备                    | `GET /devices`、`POST /devices/pairings`、`POST /devices/pair`、`DELETE /devices/:id`                                                                                   |
+| 连接                    | `GET/POST /connections`、`PATCH /connections/:id`、`POST /connections/:id/discover`、`POST /connections/:id/stop`、`POST .../wake`、`POST .../sleep`、`POST .../check`  |
+| 工具                    | `GET /tools`、`POST /tools/:id/call`（`{arguments:{...}}`）                                                                                                             |
+| 内容目录                | `GET /catalog`、`POST /catalog/prompts/:id/get`、`POST /catalog/resources/read`                                                                                         |
+| Agent 配置              | `GET/POST /profiles`、`PUT /profiles/:id`（name/instructions/toolIds/contentIds/skillVersionIds/artifactIds）、`GET /profiles/:id/export?client=预设名`                 |
+| 接入密钥                | `POST /profiles/:id/keys`、`GET /profiles/keys/all`、`DELETE /profiles/keys/:id`                                                                                        |
+| 上游授权                | `GET /connections/:id/oauth`、`POST .../start`、`GET .../callback`、`POST .../complete`（redirectUrl）、`DELETE .../oauth`                                              |
+| Agent OAuth             | `POST /oauth/register`、`GET /oauth/authorize`、`POST /oauth/consent`、`POST /oauth/token`、`POST /oauth/revoke`                                                        |
+| OAuth grants            | `GET /oauth/grants`、`DELETE /oauth/grants/:id`                                                                                                                         |
+| Skills                  | `GET/POST /skills`、`POST /skills/zip`、`POST /skills/git`、`GET /skills/:id/export`、`POST /skills/:id/install`                                                        |
+| 产物                    | `GET/POST /artifacts`、`GET /artifacts/:id/content`、`POST /artifacts/transfers`                                                                                        |
+| 记录                    | `GET /calls`、`POST /calls/:id/cancel`、`GET /transfers`、`GET /installations`                                                                                          |
+| Pi                      | `GET/POST /tasks`、`POST /tasks/:id/cancel`                                                                                                                             |
+| 导入                    | `POST /import/preview`、`POST /import/apply`（旧 mcpServers + 本地 deviceId；预览逐项返回 errors/warnings）                                                             |
+| 分身份上游授权          | `GET /connections/:id/bindings`；`/connections/:id/bindings/:bindingId/oauth` 的 status/start/complete/callback/revoke 与连接级操作相同                                 |
+| OpenAPI                 | `POST /openapi/preview`；`GET/DELETE /connections/:id/openapi/oauth/:scheme`、`POST .../start`、`GET .../callback`，也支持 `/bindings/:bindingId/openapi/oauth/:scheme` |
+| 交互与续传              | `GET /interactions`、`POST /interactions/:id/respond`；接受、拒绝或取消后由原调用续传，重复响应返回明确错误                                                             |
+| 事件流                  | `GET /calls/events`、`GET /tasks/events`，仅当前用户事件                                                                                                                |
+| Apps 运行视图           | `GET /apps`（可选 taskId）、`GET/DELETE /apps/:id`、`POST .../call`、`POST .../read`、`POST .../message`、`POST .../context`、`POST .../send`                           |
 
 平台启动失败或数据库失败不会回退到假数据。输入错误返回 `VALIDATION`；业务错误返回可诊断的 `code/error`；非预期异常返回 500 并记录服务端错误。
 
@@ -82,7 +87,7 @@ stdio 的进程凭证通过 `env` 配置；上游 HTTP OAuth 端点不适用于 
 
 发现端点 `/.well-known/oauth-authorization-server` 和 `/.well-known/oauth-protected-resource/mcp/:profileId`。Agent OAuth 支持 public client、PKCE S256、精确 redirect/resource 绑定、一次性授权码、access token 1 小时、refresh token 30 天及轮换；同一会话刷新后使用新 token。登录用户须显式同意指定配置，客户端注册不等于获得授权。
 
-上游授权优先官方 SDK 的发现与动态注册；也可预注册 `oauth.clientId/clientSecret/scope`。CSRF state 十分钟、绑定连接、一次消费。撤销会终止本地连接并删除本地凭证；供应商侧已有授予需在供应商账户撤销，UI 明确提示。Cloudflare/Vercel 专项联调未以本地测试代替。
+上游授权使用官方 SDK 的发现与动态注册，也可预注册 `oauth.clientId/clientSecret/scope/tokenEndpointAuthMethod`，或配置 `clientMetadataUrl` 使用 Client ID Metadata Document。issuer、scope、认证方法、回调 state、凭证与刷新队列均按授权绑定隔离，刷新 access token 不更换身份。CSRF state 十分钟、一次消费；撤销后拒绝迟到的授权写入。设备 HTTP 授权的发现、交换与刷新在设备执行，平台仅通过受限设备授权通道协调；该通道不是通用 HTTP 工具。Pi 使用自己的文件凭证与授权执行路径。供应商侧已有授予仍需在供应商账户撤销。Cloudflare/Vercel 专项联调未以本地测试代替。
 
 ## 文件流转
 
@@ -107,7 +112,7 @@ Agent 使用原接入密钥或 OAuth token 对 **`GET /mcp/:profileId/artifacts/
 }
 ```
 
-method：discover/catalog/call/mcp.request/close/skill.install/artifact.send/artifact.receive。`catalog` 返回工具、Prompts、Resources、模板、协议版本和 capabilities；`mcp.request` 的 params.operation 为 `{method,params}`，支持 prompts/get、resources/read、resources/subscribe、resources/unsubscribe。设备响应 `{v:1,type:"result",id,result}` 或 `{v:1,type:"result",id,error:{code,message}}`；取消消息 `{v:1,type:"cancel",id}`。设备 hello 含 os/hostname/version；每 15 秒 heartbeat 报告服务状态；通道掉线三秒后重连，仅恢复连接，不重放请求。服务端心跳失联中断 pending 请求，明确标记结果未知。
+method：discover/catalog/call/mcp.request/check/interaction.cancel/close/oauth.request/skill.install/artifact.send/artifact.receive。`catalog` 返回工具、Prompts、Resources、模板、服务说明、协议版本和 capabilities；`mcp.request` 的 params.operation 为 `{method,params}`，支持 prompts/get、resources/read、resources/subscribe、resources/unsubscribe。MCP 请求另含 sessionId/bindingId/capabilities/correlationId；旧连接器仍能处理原有请求，需要新能力时返回升级提示。设备响应 `{v:1,type:"result",id,result}` 或 `{v:1,type:"result",id,error:{code,message}}`；取消消息 `{v:1,type:"cancel",id}`。设备 hello 含 os/hostname/version 和能力列表；每 15 秒 heartbeat 报告服务状态；通道掉线三秒后重连，仅恢复连接，不重放请求。服务端心跳失联中断 pending 请求，明确标记结果未知。
 
 协议源码：`packages/contracts/src/index.ts`、`connector/internal/agent/protocol.go`。自动化契约测试覆盖封包、真 WebSocket、两进程路由、取消和断线。
 

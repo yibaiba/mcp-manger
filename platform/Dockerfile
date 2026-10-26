@@ -14,5 +14,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
     && mkdir -p /app/.data && chown node:node /app/.data
 ENV NODE_ENV=production
 USER node
-EXPOSE 4300
+EXPOSE 4300 4302
 CMD ["pnpm", "start"]

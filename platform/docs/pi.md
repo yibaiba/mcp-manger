@@ -16,10 +16,12 @@ Pi 桥接支持 Streamable HTTP、旧版 HTTP+SSE 和 stdio。远程地址可用
 
 两条执行路径：
 
-1. **MCP 桥接**：每个用户/连接独立子进程、Pi 目录和服务器名，由 pi-mcp-adapter 持有授权与执行。通过适配器持有的官方 MCP Client 执行程序化请求，不构造模型消息、不请求模型。完整发现工具、Prompts、Resources 和模板；转发通知、进度与原始元数据，网关照常校验权限。工具使用单次底层请求，避免高层 helper 的恢复重放。
+1. **MCP 桥接**：运行会话使用独立子进程；授权目录和文件按用户、连接和授权绑定共享同一身份，由 pi-mcp-adapter 持有授权与执行。通过适配器持有的官方 MCP Client 执行程序化请求，不构造模型消息、不请求模型。完整发现工具、Prompts、Resources 和模板；转发通知、进度与原始元数据，网关照常校验权限。工具使用单次底层请求，避免高层 helper 的恢复重放。
 2. **内置 Agent**：设置 `PI_MODEL_PROVIDER`、`PI_MODEL_ID` 和该供应商的环境凭证；在任务页选择配置执行真实模型推理。只注入该配置的 MCP 工具、目录/Prompt/Resource 访问工具及 Skill 版本，不继承主机的全局扩展、Skills 或内置 shell 工具。Skill 的 SKILL.md 通过 Pi loader 加载并注入任务指令；辅助文件会落盘，但不会额外授权任意宿主机文件访问或脚本执行。
 
-`pi-mcp-adapter@7.0.0` 的公开代理原先只暴露工具。项目用 [pnpm 补丁](../patches/pi-mcp-adapter@7.0.0.patch) 增加 `getMcpClient({pi, name})`，仅返回同一扩展实例中已经连接的官方 Client；授权、传输与生命周期仍由 Pi 管理。补丁由 `pnpm-workspace.yaml` 和锁文件锁定，普通 frozen install 自动应用，不需要用户手工安装或修改依赖。升级该适配器时须核对补丁并运行 `pnpm test`、`pnpm test:pi`。
+`pi-mcp-adapter@7.0.0` 的公开代理原先只暴露工具。项目用 [pnpm 补丁](../patches/pi-mcp-adapter@7.0.0.patch) 增加 `getMcpClient({pi, name})`，仅返回同一扩展实例中已经连接的官方 Client，并补充嵌入接口：授权键/会话键分离、客户端能力、托管 stdio、发现元数据、按绑定串行 OAuth 和工具派发 fetch。token 过期时在工具派发前由 Pi 自身 Provider 刷新；401/403 在一次派发后明确失败，不触发 SDK 隐式重放。
+
+补丁由 `pnpm-workspace.yaml` 和锁文件锁定，普通 frozen install 自动应用，不需要用户手工安装或修改依赖。官方 MCP SDK 2.3.1 的两个小补丁允许外部协调 OAuth，以及 timeout=0 时关闭 SDK 网络计时，避免将用户交互等待误判超时；平台仍管理执行超时和取消。升级这些依赖时须复核补丁并运行 `pnpm test`、`pnpm test:pi`。不会复制 MCPHub token。
 
 内置 Agent 的 `platform_mcp_catalog`、`platform_mcp_prompt`、`platform_mcp_resource` 直接使用平台 ContentService，按当前配置检查 `contentIds`；资源模板仅授权匹配 URI。权限变更会取消该配置正在运行的任务。它们不经 HTTP 网关，不形成回环。
 
@@ -30,6 +32,8 @@ UI 授权支持 auth-start、手工完整 redirectUrl 完成授权和 logout。�
 ## 已执行与待实测
 
 `pnpm test:pi` 通过真实 Pi SDK + pi-mcp-adapter 对本地官方 MCP SDK 服务发现和调用，核对原始 structuredContent，全程未配置模型。此测试通过工作区包名加载随平台安装的运行时，60 秒硬超时。
+
+新增本地真实 OAuth 测试覆盖 Pi 授权码交换、加密文件 token、过期前刷新、401 仅派发一次；真实旧协议服务覆盖 form 交互和取消后上游中断。工具页与任务页提供用户表单及 App 宿主，不要求模型；只有用户发送消息并创建 Agent 任务时需要模型。
 
 仍须实测：Vercel OAuth 登录/刷新/撤销/重启恢复；配置实际模型后完成一次任务；Pi 实际使用 Skill 的辅助资源；供应商错误、模型中断和真实执行成本。当前没有提供这些账号与模型设置，不记录为通过。
 
