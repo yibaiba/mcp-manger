@@ -1,3 +1,5 @@
+import { TaskDetail } from './TaskDetail.js';
+import { ApprovalPanel } from './ApprovalPanel.js';
 import { InteractionPanel } from '../interactions/InteractionPanel.js';
 import { TaskApps } from '../apps/TaskApps.js';
 import { Card } from '../../components/ui/card.js';
@@ -79,6 +81,11 @@ export default function TasksPage() {
         </Card>
       )}
       <InteractionPanel />
+      {new URLSearchParams(window.location.search).get('task') ? (
+        <TaskDetail id={new URLSearchParams(window.location.search).get('task')!} />
+      ) : (
+        <ApprovalPanel />
+      )}
       <Card className="panel">
         <div className="panel-heading">
           <h2>任务记录</h2>
@@ -88,7 +95,9 @@ export default function TasksPage() {
             <div key={task.id} className="connection-row">
               <div className="row">
                 <Status value={task.status} />
-                <strong className="grow">{task.prompt}</strong>
+                <a className="grow" href={`/tasks?task=${task.id}`}>
+                  {task.prompt}
+                </a>
                 {task.status === 'running' ? (
                   <Action action={() => api(`/tasks/${task.id}/cancel`, { method: 'POST' })}>
                     取消

@@ -58,6 +58,18 @@ export function Status({ value }: { value: string }) {
     cancelled: '已取消',
     revoked: '已撤销',
     installed: '已安装',
+    waiting: '等待上游交互',
+    waiting_authorization: '等待平台授权',
+    pending: '待审批',
+    approved: '已批准',
+    rejected: '已拒绝',
+    expired: '已到期',
+    invalidated: '配置或身份已改变',
+    interrupted: '进程重启已中断',
+    queued: '待执行',
+    created: '已保存',
+    executing: '执行中',
+    exported: '外部任务包已就绪',
   };
   return (
     <Badge variant="outline" className={`status status-${value}`}>

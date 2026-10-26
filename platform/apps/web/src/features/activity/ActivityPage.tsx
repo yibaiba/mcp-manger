@@ -1,3 +1,6 @@
+import { useState } from 'react';
+import { Input } from '../../components/ui/input.js';
+import { Field } from '../../components/shared/Controls.js';
 import { useQuery } from '@tanstack/react-query';
 import { Card } from '../../components/ui/card.js';
 import {
@@ -12,9 +15,19 @@ import { api, type Call, type Tool, type Connection } from '../../lib/api.js';
 import { Action, date, Empty, Feedback, Status } from '../../components/shared/Controls.js';
 
 export default function ActivityPage() {
+  const [filters, setFilters] = useState({
+    profileId: '',
+    taskId: '',
+    connectionId: '',
+    deviceId: '',
+    status: '',
+  });
+  const search = new URLSearchParams(
+    Object.entries(filters).filter(([, value]) => value),
+  ).toString();
   const calls = useQuery({
-    queryKey: ['calls'],
-    queryFn: () => api<Call[]>('/calls'),
+    queryKey: ['calls', search],
+    queryFn: () => api<Call[]>(`/calls?${search}`),
     refetchInterval: 5000,
   });
   const tools = useQuery({ queryKey: ['tools'], queryFn: () => api<Tool[]>('/tools') });
@@ -32,6 +45,27 @@ export default function ActivityPage() {
         </div>
       </div>
       <Feedback error={calls.error ?? tools.error ?? connections.error} />
+      <div className="overview-grid">
+        {(Object.keys(filters) as (keyof typeof filters)[]).map((key) => (
+          <Field
+            key={key}
+            label={
+              {
+                profileId: 'Agent ID',
+                taskId: '任务 ID',
+                connectionId: '连接 ID',
+                deviceId: '设备 ID',
+                status: '状态',
+              }[key]
+            }
+          >
+            <Input
+              value={filters[key]}
+              onChange={(e) => setFilters({ ...filters, [key]: e.target.value })}
+            />
+          </Field>
+        ))}
+      </div>
       <Card className="panel">
         <div className="panel-heading">
           <h2>最近 100 次调用</h2>
@@ -62,6 +96,12 @@ export default function ActivityPage() {
                       {connections.data?.find((connection) => connection.id === call.connectionId)
                         ?.name ?? call.connectionId}{' '}
                       · {call.adapter}
+                    </small>
+                    <small>
+                      Agent {call.profileId ?? '管理账号'} · 任务 {call.taskId ?? '无'}
+                    </small>
+                    <small>
+                      {call.entry} · {call.phase} · 关联 {call.correlationId}
                     </small>
                     <small>{call.deviceId ?? '平台执行'}</small>
                   </TableCell>

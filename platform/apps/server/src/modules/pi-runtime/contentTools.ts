@@ -7,37 +7,39 @@ const textResult = (result: unknown) => ({
 });
 export async function contentToolset(content: ContentService, access: ContentAccess) {
   const entries = await content.catalog(access);
-  const tools = entries.length
-    ? [
-        {
-          name: names[0],
-          description:
-            '列出当前 Agent 配置允许访问的 MCP Prompts、Resources 和资源模板，获取提示词 ID 与资源 URI。',
-          inputSchema: { type: 'object' as const, properties: {} },
-        },
-        {
-          name: names[1],
-          description: '按 platform_mcp_catalog 返回的提示词 ID 获取 Prompt。',
-          inputSchema: {
-            type: 'object' as const,
-            properties: {
-              id: { type: 'string' },
-              arguments: { type: 'object', additionalProperties: { type: 'string' } },
+  const requestable = access.profileId ? (await content.requestable(access)).length : 0;
+  const tools =
+    entries.length || requestable
+      ? [
+          {
+            name: names[0],
+            description:
+              '列出当前 Agent 配置允许访问的 MCP Prompts、Resources 和资源模板，获取提示词 ID 与资源 URI。',
+            inputSchema: { type: 'object' as const, properties: {} },
+          },
+          {
+            name: names[1],
+            description: '按 platform_mcp_catalog 返回的提示词 ID 获取 Prompt。',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                id: { type: 'string' },
+                arguments: { type: 'object', additionalProperties: { type: 'string' } },
+              },
+              required: ['id'],
             },
-            required: ['id'],
           },
-        },
-        {
-          name: names[2],
-          description: '按 platform_mcp_catalog 返回的资源 URI 读取 Resource；模板需替换变量。',
-          inputSchema: {
-            type: 'object' as const,
-            properties: { uri: { type: 'string' } },
-            required: ['uri'],
+          {
+            name: names[2],
+            description: '按 platform_mcp_catalog 返回的资源 URI 读取 Resource；模板需替换变量。',
+            inputSchema: {
+              type: 'object' as const,
+              properties: { uri: { type: 'string' } },
+              required: ['uri'],
+            },
           },
-        },
-      ]
-    : [];
+        ]
+      : [];
   return {
     tools,
     handles: (name: string) => names.some((value) => value === name),

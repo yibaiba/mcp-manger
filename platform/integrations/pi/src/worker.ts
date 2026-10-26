@@ -55,7 +55,7 @@ function client() {
   if (!observed.has(current)) {
     observed.add(current);
     observeNotifications(current, (notification) =>
-      process.send?.({ type: 'notification', notification }),
+      sendToParent({ type: 'notification', notification }),
     );
   }
   return current;
@@ -64,16 +64,31 @@ let server = '';
 let serverUrl = '';
 const active = new Map<string, AbortController>();
 const authGrants = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+function sendToParent(message: Record<string, unknown>) {
+  const failed = (error: Error | null) => {
+    if (!error) return;
+    console.error('Pi bridge IPC delivery failed; pending execution cannot be reported', error);
+    for (const grant of authGrants.values()) grant.reject(error);
+    authGrants.clear();
+    for (const abort of active.values()) abort.abort(error);
+  };
+  if (!process.connected || !process.send) {
+    failed(new Error('Pi parent channel disconnected'));
+    return;
+  }
+  process.send(message, undefined, undefined, failed);
+}
+
 async function authorize(action: () => Promise<'AUTHORIZED' | 'REDIRECT'>) {
   const id = randomUUID();
   await new Promise<void>((resolve, reject) => {
     authGrants.set(id, { resolve, reject });
-    process.send?.({ type: 'auth-acquire', id });
+    sendToParent({ type: 'auth-acquire', id });
   });
   try {
     return await action();
   } finally {
-    process.send?.({ type: 'auth-release', id });
+    sendToParent({ type: 'auth-release', id });
   }
 }
 async function proxy(params: Record<string, unknown>, signal?: AbortSignal) {
@@ -212,7 +227,7 @@ async function dispatch(
     return { closed: true };
   }
   const onprogress = params.progress
-    ? (progress: unknown) => process.send?.({ type: 'progress', id: requestId, progress })
+    ? (progress: unknown) => sendToParent({ type: 'progress', id: requestId, progress })
     : undefined;
   if (method === 'catalog' || method === 'discover') {
     await proxy({ connect: server }, signal);
@@ -289,9 +304,9 @@ process.on(
     active.set(message.id, abort);
     void dispatch(message.method, message.params, abort.signal, message.id)
       .then(
-        (result) => process.send?.({ id: message.id, result }),
+        (result) => sendToParent({ id: message.id, result }),
         (error: unknown) =>
-          process.send?.({
+          sendToParent({
             id: message.id,
             error: error instanceof Error ? error.message : String(error),
           }),

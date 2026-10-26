@@ -255,6 +255,7 @@ type RunOptions = {
   call: (name: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<Result>;
   signal: AbortSignal;
   onText: (text: string) => void;
+  activeTools?: () => Promise<string[]>;
 };
 export async function run(options: RunOptions) {
   const skillDirectory = join(options.directory, 'skills');
@@ -303,6 +304,7 @@ export async function run(options: RunOptions) {
     parameters: tool.inputSchema as TSchema,
     async execute(_id, args, signal) {
       const result = await options.call(tool.name, args as Record<string, unknown>, signal);
+      if (options.activeTools) session.setActiveToolsByName(await options.activeTools());
       return {
         content: result.content.map((block) => ({
           type: 'text' as const,
@@ -335,6 +337,7 @@ export async function run(options: RunOptions) {
   });
   try {
     options.signal.throwIfAborted();
+    if (options.activeTools) session.setActiveToolsByName(await options.activeTools());
     await session.prompt(options.prompt);
     const last = session.messages.at(-1);
     if (last?.role === 'assistant' && last.stopReason === 'error')
