@@ -7,6 +7,7 @@ type RuntimeEvent = Readonly<{
   kind: 'call' | 'task';
   id: string;
   status?: string;
+  revision?: number;
   text?: string;
   error?: string;
 }>;

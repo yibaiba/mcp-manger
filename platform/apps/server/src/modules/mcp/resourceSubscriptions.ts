@@ -24,7 +24,15 @@ export class ResourceSubscriptions {
       if (input.active && !input.active()) throw new Error('订阅入口已关闭');
       let subscription = this.subscriptions.get(key);
       if (!subscription) {
-        const release = await this.content.subscribe(entry, original);
+        const release = await this.content.subscribe(entry, original, () => {
+          void this.sequence(key, async () => {
+            const previous = this.subscriptions.get(key);
+            this.subscriptions.delete(key);
+            await previous?.release();
+          }).catch((error: unknown) =>
+            console.error('Subscription permission cleanup failed', error),
+          );
+        });
         subscription = {
           connectionId: entry.connectionId,
           channels: new Set(),

@@ -1,3 +1,6 @@
+import { currentExecution } from '../mcp/executionContext.js';
+import type { AccessService } from '../permissions/accessService.js';
+import { streamFinally } from '../mcp/gatewayStream.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq, gt, desc } from 'drizzle-orm';
 import { artifacts, transfers, type Database } from '@platform/db';
@@ -15,6 +18,7 @@ export class ArtifactService {
       broker: DeviceBroker;
       devices: DeviceService;
       publicUrl: string;
+      access: AccessService;
     },
   ) {}
   list(ownerId: string) {
@@ -46,7 +50,14 @@ export class ArtifactService {
     try {
       const [row] = await this.deps.db
         .insert(artifacts)
-        .values({ id, ownerId, name: input.name, ...stored })
+        .values({
+          id,
+          ownerId,
+          name: input.name,
+          ...stored,
+          taskId: currentExecution()?.taskId,
+          profileId: currentExecution()?.profileId,
+        })
         .returning();
       return requireValue(row);
     } catch (error) {
@@ -68,14 +79,29 @@ export class ArtifactService {
       .from(artifacts)
       .where(and(eq(artifacts.id, id), eq(artifacts.ownerId, ownerId)));
     const artifact = requireValue(row);
-    return new Response(this.deps.files.read(id), {
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': String(artifact.size),
-        'X-Content-SHA256': artifact.sha256,
-        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(artifact.name)}`,
+    const abort = new AbortController();
+    const profileId = currentExecution()?.profileId;
+    if (profileId) await this.deps.access.assert({ ownerId, profileId }, 'artifactIds', id);
+    const release = profileId
+      ? await this.deps.access.monitor({
+          access: { ownerId, profileId },
+          kind: 'artifactIds',
+          id,
+          cancel: () => abort.abort(new AppError('GRANT_REVOKED', '下载授权已失效', 403)),
+        })
+      : () => {};
+    const response = new Response(
+      this.deps.files.read(id).pipeThrough(new TransformStream(), { signal: abort.signal }),
+      {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(artifact.size),
+          'X-Content-SHA256': artifact.sha256,
+          'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(artifact.name)}`,
+        },
       },
-    });
+    );
+    return streamFinally(response, async () => release());
   }
   async transfer(
     ownerId: string,

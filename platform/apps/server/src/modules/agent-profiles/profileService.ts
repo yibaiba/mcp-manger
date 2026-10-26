@@ -1,6 +1,8 @@
-import { and, eq, inArray, gt, isNull, or } from 'drizzle-orm';
+import type { AccessService } from '../permissions/accessService.js';
+import { and, eq, inArray, gt, isNull, or, sql } from 'drizzle-orm';
 import {
   profiles,
+  connections,
   artifacts,
   tools,
   mcpEntries,
@@ -15,6 +17,7 @@ import { AppError, requireValue } from '../../shared/errors.js';
 export type Principal = { ownerId: string; profileId: string; credentialId: string; token: string };
 import type { ConnectionService } from '../mcp/connectionService.js';
 export class ProfileService {
+  access?: AccessService;
   constructor(
     private readonly db: Database,
     private readonly connections?: ConnectionService,
@@ -27,7 +30,19 @@ export class ProfileService {
     return requireValue(profile);
   }
   async save(ownerId: string, input: unknown, id?: string) {
-    const value = profileInput.parse(input);
+    const previous = id ? await this.owned(ownerId, id) : undefined;
+    const value = profileInput.parse(
+      previous
+        ? {
+            requestable: previous.requestable,
+            connectionIdentities: previous.connectionIdentities,
+            ...(input as object),
+          }
+        : input,
+    );
+    if (previous && value.revision !== undefined && value.revision !== previous.revision)
+      throw new AppError('REVISION_CONFLICT', '配置已改变，请重新加载', 409);
+    await this.validateRequestable(ownerId, value);
     const contentIds = [...new Set(value.contentIds)];
     const entries = contentIds.length
       ? await this.db
@@ -67,12 +82,19 @@ export class ProfileService {
     if (new Set(versions.map((v) => v.name)).size !== versions.length)
       throw new AppError('SKILL_DUPLICATE', '每个 Skill 只能选择一个版本');
     if (id) {
-      await this.owned(ownerId, id);
       const [profile] = await this.db
         .update(profiles)
-        .set({ ...value, contentIds, toolIds, skillVersionIds: versionIds })
-        .where(eq(profiles.id, id))
+        .set({
+          ...value,
+          artifactIds,
+          contentIds,
+          toolIds,
+          skillVersionIds: versionIds,
+          revision: sql`${profiles.revision} + 1`,
+        })
+        .where(and(eq(profiles.id, id), eq(profiles.revision, previous!.revision)))
         .returning();
+      if (!profile) throw new AppError('REVISION_CONFLICT', '配置已改变，请重新加载', 409);
       return profile;
     }
     const [profile] = await this.db
@@ -80,6 +102,30 @@ export class ProfileService {
       .values({ ...value, contentIds, ownerId, toolIds, skillVersionIds: versionIds })
       .returning();
     return profile;
+  }
+  private async validateRequestable(ownerId: string, value: ReturnType<typeof profileInput.parse>) {
+    for (const [kind, table] of [
+      ['toolIds', tools],
+      ['contentIds', mcpEntries],
+      ['artifactIds', artifacts],
+    ] as const) {
+      const ids = [...new Set(value.requestable?.[kind] ?? [])];
+      const rows = ids.length
+        ? await this.db
+            .select({ id: table.id })
+            .from(table)
+            .where(and(eq(table.ownerId, ownerId), inArray(table.id, ids)))
+        : [];
+      if (rows.length !== ids.length)
+        throw new AppError('INVALID_GRANTS', '可申请能力必须属于当前用户');
+    }
+    for (const id of Object.keys(value.connectionIdentities ?? {})) {
+      const [row] = await this.db
+        .select({ id: connections.id })
+        .from(connections)
+        .where(and(eq(connections.id, id), eq(connections.ownerId, ownerId)));
+      if (!row) throw new AppError('INVALID_IDENTITY', '身份连接不属于当前用户');
+    }
   }
   list(ownerId: string) {
     return this.db.select().from(profiles).where(eq(profiles.ownerId, ownerId));
@@ -177,6 +223,17 @@ export class ProfileService {
     );
     return [profile.instructions, ...descriptions].filter(Boolean).join('\n\n');
   }
+  async potentialCatalog(ownerId: string, profileId: string) {
+    const profile = await this.owned(ownerId, profileId);
+    const ids = [...new Set([...profile.toolIds, ...profile.requestable.toolIds])];
+    const rows = ids.length
+      ? await this.db
+          .select()
+          .from(tools)
+          .where(and(eq(tools.ownerId, ownerId), inArray(tools.id, ids)))
+      : [];
+    return this.scopedCatalog(ownerId, rows);
+  }
   async catalog(ownerId: string, profileId?: string, connectionId?: string) {
     const rows = await this.db
       .select()
@@ -189,15 +246,17 @@ export class ProfileService {
       );
     if (!profileId) return this.scopedCatalog(ownerId, rows);
     const profile = await this.owned(ownerId, profileId);
+    const effective = await this.access?.effective({ ownerId, profileId });
     return this.scopedCatalog(
       ownerId,
-      rows.filter((tool) => profile.toolIds.includes(tool.id)),
+      rows.filter((tool) => (effective ?? profile).toolIds.includes(tool.id)),
     );
   }
   async tool(ownerId: string, input: { toolId: string; profileId?: string }) {
     if (input.profileId) {
       const profile = await this.owned(ownerId, input.profileId);
-      if (!profile.toolIds.includes(input.toolId)) return undefined;
+      const effective = await this.access?.effective({ ownerId, profileId: input.profileId });
+      if (!(effective ?? profile).toolIds.includes(input.toolId)) return undefined;
     }
     const rows = await this.db
       .select()

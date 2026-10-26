@@ -1,7 +1,7 @@
 import { CallToolResultSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { CALL_TIMEOUT_MS } from '@platform/contracts';
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { calls, type Database } from '@platform/db';
 import { AppError } from '../../shared/errors.js';
 import type { ProfileService, Principal } from '../agent-profiles/profileService.js';
@@ -14,7 +14,7 @@ import {
   type Progress,
 } from '@platform/mcp';
 import type { InteractionService, PendingResult } from '../interactions/interactionService.js';
-import { currentExecution, withExecution } from './executionContext.js';
+import { currentExecution, withExecution, PLATFORM_CAPABILITIES } from './executionContext.js';
 import { scopeResult } from './catalogEntries.js';
 import type { RuntimeEvents } from '../../shared/runtimeEvents.js';
 type CallInput = {
@@ -56,7 +56,24 @@ export class InvocationService {
         : result,
     );
   }
-  async dispatch(input: CallInput): Promise<McpToolResult> {
+  dispatch(input: CallInput): Promise<McpToolResult> {
+    const context = currentExecution();
+    return withExecution(
+      {
+        ...(context ?? {
+          identity: 'dashboard',
+          entry: 'dashboard',
+          sessionId: 'dashboard',
+          capabilities: PLATFORM_CAPABILITIES,
+        }),
+        ownerId: input.ownerId,
+        profileId: input.profileId ?? context?.profileId,
+        correlationId: randomUUID(),
+      },
+      () => this.execute(input),
+    );
+  }
+  private async execute(input: CallInput): Promise<McpToolResult> {
     if (input.principal)
       await this.deps.profiles.authenticate(input.principal.profileId, input.principal.token);
     const tool = await this.deps.profiles.tool(input.ownerId, input);
@@ -70,6 +87,7 @@ export class InvocationService {
     if (deadline !== undefined && (!Number.isFinite(deadline) || deadline <= Date.now()))
       throw new AppError('INTERACTION_DEADLINE', '交互截止时间无效或已过期');
     let deadlineTimer: NodeJS.Timeout | undefined;
+    let releasePermission = () => {};
     const execution = currentExecution();
     const context = await this.deps.connections.context(input.ownerId, connection.id);
     const adapter = await this.deps.connections.adapter(input.ownerId, connection.id);
@@ -89,6 +107,12 @@ export class InvocationService {
         adapter: connection.adapter,
         deviceId: connection.deviceId,
         status: 'running',
+        taskId: execution?.taskId,
+        credentialId: execution?.credentialId,
+        bindingId: context.bindingId,
+        sessionId: context.sessionId,
+        entry: execution?.entry ?? 'dashboard',
+        correlationId: execution?.correlationId,
       });
     } catch (error) {
       lease.release();
@@ -100,11 +124,25 @@ export class InvocationService {
       credentialId: input.principal?.credentialId,
       abort,
     });
-    this.deps.events.publish({ ownerId: input.ownerId, kind: 'call', id, status: 'running' });
+    releasePermission =
+      (await this.deps.profiles.access?.monitor({
+        access: input,
+        kind: 'toolIds',
+        id: tool.id,
+        cancel: () => abort.abort(new Error('工具授权已失效')),
+      })) ?? (() => {});
+    this.deps.events.publish({
+      ownerId: input.ownerId,
+      kind: 'call',
+      id,
+      status: 'running',
+      revision: 1,
+    });
     const interrupted = () => {
       if (!this.active.has(id)) return;
       this.active.delete(id);
       lease.release();
+      releasePermission();
       clearTimeout(deadlineTimer);
       void this.finish(id, 'unknown', '调用或运行会话已中断').catch((error: unknown) =>
         console.error('Call interruption persistence failed', error),
@@ -203,6 +241,7 @@ export class InvocationService {
         if (!waiting) {
           this.active.delete(id);
           lease.release();
+          releasePermission();
           clearTimeout(deadlineTimer);
           signal.removeEventListener('abort', interrupted);
         }
@@ -213,10 +252,24 @@ export class InvocationService {
   private async finish(id: string, status: string, error?: string) {
     const [row] = await this.deps.db
       .update(calls)
-      .set({ status, error, endedAt: status === 'waiting' ? null : new Date() })
+      .set({
+        status,
+        error,
+        phase: status === 'waiting' ? 'interaction' : 'upstream',
+        revision: sql`${calls.revision} + 1`,
+        endedAt: status === 'waiting' ? null : new Date(),
+      })
       .where(eq(calls.id, id))
-      .returning({ ownerId: calls.ownerId });
-    if (row) this.deps.events.publish({ ownerId: row.ownerId, kind: 'call', id, status, error });
+      .returning({ ownerId: calls.ownerId, revision: calls.revision });
+    if (row)
+      this.deps.events.publish({
+        ownerId: row.ownerId,
+        kind: 'call',
+        id,
+        status,
+        error,
+        revision: row.revision,
+      });
   }
   cancel(ownerId: string, id: string) {
     const current = this.active.get(id);

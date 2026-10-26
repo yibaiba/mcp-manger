@@ -57,6 +57,8 @@ export const connectionInput = z
     env: z.record(z.string(), z.string()).default({}),
     headers: z.record(z.string(), z.string()).default({}),
     cwd: z.string().optional(),
+    credentialEnv: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).default([]),
+    credentialHeaders: z.array(z.string().regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/)).default([]),
     identityMode: z.enum(['shared', 'independent']).default('shared'),
     forwardHeaders: z.array(z.string().regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/)).default([]),
     lifecycle: z
@@ -121,6 +123,14 @@ export type ImportPreview = {
   errors: string[];
   authorization: string;
 };
+export const permissionSet = z
+  .object({
+    toolIds: z.array(z.string()).default([]),
+    contentIds: z.array(z.string()).default([]),
+    artifactIds: z.array(idSchema).default([]),
+  })
+  .strict();
+export type PermissionSet = z.infer<typeof permissionSet>;
 export const profileInput = z
   .object({
     name: z.string().trim().min(1),
@@ -129,6 +139,11 @@ export const profileInput = z
     contentIds: z.array(z.string()).default([]),
     skillVersionIds: z.array(idSchema).default([]),
     artifactIds: z.array(idSchema).default([]),
+    revision: z.number().int().positive().optional(),
+    requestable: permissionSet.optional(),
+    connectionIdentities: z
+      .record(idSchema, z.enum(['inherit', 'profile', 'credential']))
+      .optional(),
   })
   .strict();
 export const callInput = z

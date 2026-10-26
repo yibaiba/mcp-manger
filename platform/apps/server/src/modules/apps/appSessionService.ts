@@ -24,6 +24,7 @@ type Session = {
   signal: AbortSignal;
   abort: AbortController;
   release: () => void;
+  permissionRelease?: () => void;
   context?: unknown;
   pendingMessage?: unknown;
   viewed?: boolean;
@@ -73,7 +74,20 @@ export class AppSessionService {
       ]),
       release: lease.release,
     });
-    const signal = this.sessions.get(id)!.signal;
+    const permissionRelease = await this.deps.profiles.access?.monitor({
+      access: { ownerId: input.ownerId, profileId: execution?.profileId },
+      kind: 'contentIds',
+      id: (
+        await this.deps.content.resolveResource(
+          { ownerId: input.ownerId, profileId: execution?.profileId },
+          uri,
+        )
+      ).entry.id,
+      cancel: () => this.close(input.ownerId, id),
+    });
+    const session = this.sessions.get(id);
+    if (session) session.permissionRelease = permissionRelease;
+    const signal = session?.signal ?? AbortSignal.abort();
     signal.addEventListener('abort', () => this.close(input.ownerId, id), { once: true });
     if (signal.aborted) this.close(input.ownerId, id);
     return { ...input.result, _meta: { ...input.result._meta, 'platform/appSession': id } };
@@ -204,5 +218,6 @@ export class AppSessionService {
     this.sessions.delete(id);
     session.abort.abort(new Error('App 视图已结束'));
     session.release();
+    session.permissionRelease?.();
   }
 }

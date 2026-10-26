@@ -313,6 +313,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@platform/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       dotenv:
         specifier: 'catalog:'
         version: 17.2.3

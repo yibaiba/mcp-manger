@@ -1,5 +1,6 @@
 import {
   pgTable,
+  integer,
   text,
   timestamp,
   jsonb,
@@ -51,6 +52,7 @@ export const connections = pgTable(
     adapter: text('adapter').$type<'direct' | 'device' | 'pi'>().notNull(),
     deviceId: uuid('device_id').references(() => devices.id),
     config: text('config').notNull(),
+    revision: integer('revision').notNull().default(1),
     status: text('status').notNull().default('disconnected'),
     error: text('error'),
     protocolVersion: text('protocol_version'),
@@ -87,6 +89,15 @@ export const profiles = pgTable('profiles', {
   contentIds: jsonb('content_ids').$type<string[]>().default([]).notNull(),
   skillVersionIds: jsonb('skill_version_ids').$type<string[]>().default([]).notNull(),
   artifactIds: jsonb('artifact_ids').$type<string[]>().default([]).notNull(),
+  revision: integer('revision').notNull().default(1),
+  requestable: jsonb('requestable')
+    .$type<import('@platform/contracts').PermissionSet>()
+    .notNull()
+    .default({ toolIds: [], contentIds: [], artifactIds: [] }),
+  connectionIdentities: jsonb('connection_identities')
+    .$type<Record<string, 'inherit' | 'profile' | 'credential'>>()
+    .notNull()
+    .default({}),
   createdAt: created(),
 });
 export const mcpEntries = pgTable(
@@ -129,6 +140,14 @@ export const authorizations = pgTable('authorizations', {
   updatedAt: created(),
 });
 export const calls = pgTable('calls', {
+  taskId: uuid('task_id'),
+  credentialId: text('credential_id'),
+  bindingId: text('binding_id'),
+  sessionId: text('session_id'),
+  entry: text('entry'),
+  correlationId: uuid('correlation_id'),
+  phase: text('phase').notNull().default('dispatch'),
+  revision: integer('revision').notNull().default(1),
   id: uuid('id').primaryKey(),
   ownerId: owner(),
   profileId: uuid('profile_id'),
@@ -172,6 +191,8 @@ export const installations = pgTable('skill_installations', {
   createdAt: created(),
 });
 export const artifacts = pgTable('artifacts', {
+  taskId: uuid('task_id'),
+  profileId: uuid('profile_id'),
   id: uuid('id').primaryKey(),
   ownerId: owner(),
   name: text('name').notNull(),
@@ -221,6 +242,9 @@ export const oauthGrants = pgTable('oauth_grants', {
   createdAt: created(),
 });
 export const tasks = pgTable('tasks', {
+  revision: integer('revision').notNull().default(1),
+  handoffId: uuid('handoff_id'),
+  endedAt: timestamp('ended_at', { withTimezone: true }),
   id: uuid('id').primaryKey(),
   ownerId: owner(),
   profileId: uuid('profile_id').notNull(),
@@ -240,8 +264,10 @@ export const authorizationBindings = pgTable(
       .notNull()
       .references(() => connections.id, { onDelete: 'cascade' }),
     identity: text('identity').notNull(),
+    revision: integer('revision').notNull().default(1),
     revoked: boolean('revoked').notNull().default(false),
     encrypted: text('encrypted'),
+    credentials: text('credentials'),
     createdAt: created(),
   },
   (t) => [uniqueIndex('binding_identity').on(t.connectionId, t.identity)],

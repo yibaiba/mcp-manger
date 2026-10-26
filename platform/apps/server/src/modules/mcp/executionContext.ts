@@ -4,6 +4,9 @@ import type { ConnectionInput } from '@platform/contracts';
 
 export type ExecutionContext = {
   readonly identity: string;
+  readonly ownerId?: string;
+  readonly credentialId?: string;
+  readonly bindingIdentity?: string;
   readonly profileId?: string;
   readonly taskId?: string;
   readonly appId?: string;
@@ -23,10 +26,20 @@ export const currentExecution = () => execution.getStore();
 export const withExecution = <T>(context: ExecutionContext, action: () => T): T =>
   execution.run(context, action);
 
-export function sessionScope(config: ConnectionInput) {
+export function sessionScope(
+  config: ConnectionInput,
+  selected?: 'inherit' | 'profile' | 'credential',
+) {
   const caller = currentExecution();
   const identity =
-    config.identityMode === 'independent' ? (caller?.identity ?? 'dashboard') : 'default';
+    caller?.bindingIdentity ??
+    (selected === 'profile' && caller?.profileId
+      ? `profile:${caller.profileId}`
+      : selected === 'credential'
+        ? (caller?.credentialId ?? caller?.identity ?? 'dashboard')
+        : config.identityMode === 'independent'
+          ? (caller?.identity ?? 'dashboard')
+          : 'default');
   const headers: Record<string, string> = {};
   for (const field of config.forwardHeaders) {
     const value = caller?.headers?.[field.toLowerCase()];
