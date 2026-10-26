@@ -12,14 +12,13 @@ export function appRoutes(service: AppSessionService) {
   });
   app.post('/:id/call', async (c) =>
     c.json(
-      await service.call(
-        owner(c),
-        paramId(c),
-        z
+      await service.call(owner(c), paramId(c), {
+        ...z
           .object({ name: z.string(), arguments: z.record(z.string(), z.unknown()).optional() })
           .strict()
           .parse(await c.req.json()),
-      ),
+        signal: c.req.raw.signal,
+      }),
     ),
   );
   app.post('/:id/read', async (c) =>

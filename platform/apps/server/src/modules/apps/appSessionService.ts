@@ -108,7 +108,7 @@ export class AppSessionService {
   async call(
     ownerId: string,
     id: string,
-    input: { name: string; arguments?: Record<string, unknown> },
+    input: { name: string; arguments?: Record<string, unknown>; signal?: AbortSignal },
   ) {
     return this.run(ownerId, id, async (session) => {
       const catalog = await this.deps.profiles.catalog(
@@ -130,7 +130,7 @@ export class AppSessionService {
         profileId: session.execution?.profileId,
         toolId: tool.id,
         arguments: input.arguments ?? {},
-        signal: session.signal,
+        signal: input.signal ? AbortSignal.any([session.signal, input.signal]) : session.signal,
       });
     });
   }

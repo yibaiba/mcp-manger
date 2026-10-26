@@ -84,6 +84,11 @@ test('platform App calls use current grants and end on refresh without replaying
     scopedUri(connection.id, upstream.uri),
   );
   await expect(h.services.apps.view('another-owner', id)).rejects.toThrow(/已结束/);
+  const cancelled = AbortSignal.abort(new Error('App caller cancelled'));
+  await expect(
+    h.services.apps.call(account.ownerId, id, { name: 'app_action', signal: cancelled }),
+  ).rejects.toThrow(/cancel|abort/i);
+  expect(upstream.calls()).toBe(before);
   await h.services.apps.call(account.ownerId, id, { name: 'app_action' });
   expect(upstream.calls()).toBe(before + 1);
   expect(h.services.apps.list(account.ownerId)).toHaveLength(1);

@@ -20,6 +20,8 @@ docker compose logs --tail=100 server
 
 Apps 使用单独源站，Caddy 将 APPS_DOMAIN 代理至 server:4302，仅暴露 Sandbox Proxy 和一次性 iframe 文档，不暴露管理 API。APPS_ORIGIN 必须与 PUBLIC_URL/WEB_ORIGIN 不同源；自定义域名时同步修改三项配置与 DNS。开发 `pnpm dev` 自动启动 4302，不需要单独启动命令。实际公网域名、证书、iframe/CSP 仍需部署验收。
 
+镜像把 Corepack 缓存放在 `/usr/local/share/corepack`，运行用户 node 可以直接使用构建时安装的 pnpm，无需启动时再次联网下载。修改镜像后，可在本机运行 `node scripts/check.mjs 600 node scripts/verify-compose.mjs`：需要先构建出默认的 mcp-platform-server/web 镜像，并空出 54330/54332。验收使用独立项目名、随机临时凭证、新建卷和仅回环地址的 HTTP 端口，检查非 root 用户禁网执行 pnpm、新库及重复迁移、Caddy 静态页、健康/登录 API、隔离源 HTTP 契约与真实无模型 Pi 桥接；结束时只清理本次项目和卷。该检查需要支持 `!override` 的 Compose，不验证公网证书签发。
+
 ## 升级与回退
 
 应用迁移 0003/0004 前先停止服务并备份数据库、整个 DATA_DIR、SQL 与 Pi 加密密钥。新增授权绑定、目录快照和加密交互状态；旧配置缺省字段保持原有默认行为，不迁移 MCPHub token。旧连接器继续原功能，新会话/授权/交互能力要求升级连接器。Windows stdio host 与连接器必须使用相同版本。

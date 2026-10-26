@@ -32,6 +32,7 @@ export function AppHost({
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const bridge = useRef<AppBridge | null>(null);
+  const teardown = useRef<(() => Promise<void>) | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [height, setHeight] = useState(400);
   const [fullscreen, setFullscreen] = useState(false);
@@ -68,6 +69,15 @@ export function AppHost({
       },
     );
     bridge.current = instance;
+    let teardownPromise: Promise<void> | undefined;
+    const dispose = () => {
+      teardownPromise ??= instance
+        .teardownResource({}, { timeout: 1000 })
+        .then(() => undefined)
+        .finally(() => instance.close());
+      return teardownPromise;
+    };
+    teardown.current = dispose;
     const endpoint = `/apps/${sessionId}`;
     const theme = new MutationObserver(() =>
       instance.setHostContext({
@@ -76,9 +86,13 @@ export function AppHost({
     );
     theme.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     instance.onrequestteardown = () => {
-      void api(endpoint, { method: 'DELETE' })
-        .then(() => setClosed(true))
-        .catch(failure);
+      void dispose()
+        .catch(failure)
+        .finally(() => {
+          void api(endpoint, { method: 'DELETE' })
+            .then(() => setClosed(true))
+            .catch(failure);
+        });
     };
     let resourceSent = false;
     instance.onsandboxready = () => {
@@ -107,10 +121,19 @@ export function AppHost({
         .then(() => instance.sendToolResult(data.result))
         .catch(failure);
     };
-    instance.oncalltool = (params) =>
-      api(`${endpoint}/call`, { method: 'POST', body: json(params) });
-    instance.onreadresource = (params) =>
-      api(`${endpoint}/read`, { method: 'POST', body: json(params) });
+    // SDK request metadata belongs to the AppBridge transport, not the management DTO.
+    instance.oncalltool = ({ name, arguments: args }, extra) =>
+      api(`${endpoint}/call`, {
+        method: 'POST',
+        body: json({ name, arguments: args }),
+        signal: extra.mcpReq.signal,
+      });
+    instance.onreadresource = ({ uri }, extra) =>
+      api(`${endpoint}/read`, {
+        method: 'POST',
+        body: json({ uri }),
+        signal: extra.mcpReq.signal,
+      });
     instance.onsizechange = (params) => {
       if (params.height) setHeight(params.height);
     };
@@ -180,16 +203,20 @@ export function AppHost({
       iframe.removeEventListener('load', ready);
       theme.disconnect();
       bridge.current = null;
-      void instance
-        .teardownResource({}, { timeout: 1000 })
-        .catch(failure)
-        .finally(() => instance.close());
+      teardown.current = null;
+      void dispose().catch(failure);
       void api(endpoint, { method: 'DELETE' }).catch((error: unknown) =>
         console.error('App session cleanup failed', error),
       );
     };
   }, [query.data, sessionId, closed, onSend]);
-  if (closed) return <p role="status">App 视图已结束；不会重放工具恢复。</p>;
+  if (closed)
+    return (
+      <div>
+        <Feedback error={error} />
+        <p role="status">App 视图已结束；不会重放工具恢复。</p>
+      </div>
+    );
   const data = query.data;
   return (
     <div className={fullscreen ? 'fixed inset-0 z-50 bg-background p-4 overflow-auto' : ''}>
@@ -215,10 +242,16 @@ export function AppHost({
         <Button
           variant="outline"
           onClick={() => {
-            void bridge.current?.sendToolCancelled({ reason: '用户关闭视图' });
-            void api(`/apps/${sessionId}`, { method: 'DELETE' })
-              .then(() => setClosed(true))
-              .catch(setError);
+            void (async () => {
+              await bridge.current?.sendToolCancelled({ reason: '用户关闭视图' });
+              await teardown.current?.();
+            })()
+              .catch(setError)
+              .finally(() => {
+                void api(`/apps/${sessionId}`, { method: 'DELETE' })
+                  .then(() => setClosed(true))
+                  .catch(setError);
+              });
           }}
         >
           关闭视图
