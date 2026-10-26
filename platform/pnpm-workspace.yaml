@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+  - integrations/*
+catalog:
+  dotenv: 17.2.3
+  zod: 4.4.3
+  typescript: 5.9.3
+  better-auth: 1.6.19
+onlyBuiltDependencies:
+  - esbuild

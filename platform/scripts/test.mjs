@@ -1,0 +1,40 @@
+import { spawn, execFileSync } from 'node:child_process';
+// Build the actual connector before starting the hard-timed backend test process.
+execFileSync('go', ['build', '-o', 'bin/connector', './cmd/connector'], {
+  cwd: new URL('../connector/', import.meta.url),
+  stdio: 'inherit',
+  timeout: 60_000,
+});
+const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+function runGroup(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, ['exec', 'vitest', 'run', ...args], {
+      stdio: 'inherit',
+      detached: process.platform !== 'win32',
+    });
+    const timeout = setTimeout(() => {
+      console.error('Backend test group exceeded the hard 60-second timeout');
+      if (process.platform === 'win32') child.kill('SIGKILL');
+      else process.kill(-child.pid, 'SIGKILL');
+    }, 60_000);
+    child.once('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once('exit', (code) => {
+      clearTimeout(timeout);
+      resolve(code ?? 1);
+    });
+  });
+}
+
+// Pi integration is verified independently; neither group extends the hard timeout.
+const requested = process.argv.slice(2);
+const groups = requested.length
+  ? [requested]
+  : [['--exclude', 'tests/pi.test.ts'], ['tests/pi.test.ts']];
+for (const [index, args] of groups.entries()) {
+  console.log(`Backend test group ${index + 1}/${groups.length}: ${args.join(' ')}`);
+  const code = await runGroup(args);
+  if (code !== 0) process.exitCode = 1;
+}

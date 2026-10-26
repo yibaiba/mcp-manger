@@ -1,0 +1,65 @@
+import { serve } from '@hono/node-server';
+import { Hono } from 'hono';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+export async function fixtureMcp(options: { beforeList?: () => Promise<void> } = {}) {
+  const app = new Hono();
+  let count = 0;
+  app.all('/mcp', async (c) => {
+    const server = createFixtureMcpServer(() => count++, options);
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    await server.connect(transport);
+    return transport.handleRequest(c.req.raw);
+  });
+  const server = serve({ fetch: app.fetch, port: 0 });
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('No fixture address');
+  return {
+    url: `http://127.0.0.1:${address.port}/mcp`,
+    count: () => count,
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
+  };
+}
+
+export function createFixtureMcpServer(
+  onCall: () => void,
+  options: { beforeList?: () => Promise<void> } = {},
+) {
+  const server = new Server(
+    { name: 'integration-fixture', version: '1' },
+    { capabilities: { tools: {} } },
+  );
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    await options.beforeList?.();
+    return {
+      tools: [
+        {
+          name: 'echo',
+          description: 'Echo for SDK integration',
+          inputSchema: {
+            type: 'object',
+            properties: { message: { type: 'string' }, delay: { type: 'number' } },
+          },
+        },
+      ],
+    };
+  });
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    onCall();
+    const delay = Number(request.params.arguments?.delay ?? 0);
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    return {
+      content: [{ type: 'text', text: String(request.params.arguments?.message ?? 'echo') }],
+      structuredContent: { name: 'echo' },
+    };
+  });
+  return server;
+}

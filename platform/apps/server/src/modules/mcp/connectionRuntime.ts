@@ -1,0 +1,92 @@
+import type { AdapterFactory, ConnectionAdapter, ConnectionContext } from './adapter.js';
+
+type AdapterOutcome = { adapter: ConnectionAdapter } | { error: unknown };
+export type ConnectionSlot = {
+  readonly id: string;
+  readonly abort: AbortController;
+  readonly ready?: Promise<AdapterOutcome>;
+};
+
+// Slot identity prevents late work from replacing a newer connection's state.
+export class ConnectionRuntime {
+  private readonly slots = new Map<string, ConnectionSlot>();
+  private readonly writes = new Map<string, Promise<unknown>>();
+  constructor(private readonly factory: AdapterFactory) {}
+
+  acquire(context: ConnectionContext): ConnectionSlot {
+    const current = this.slots.get(context.id);
+    if (current?.ready) return current;
+    const slot = {
+      id: context.id,
+      abort: new AbortController(),
+      ready: this.sequence(context.id, () => this.factory(context)).then<
+        AdapterOutcome,
+        AdapterOutcome
+      >(
+        (adapter) => ({ adapter }),
+        (error: unknown) => ({ error }),
+      ),
+    };
+    this.slots.set(context.id, slot);
+    return slot;
+  }
+
+  current(slot: ConnectionSlot) {
+    return this.slots.get(slot.id) === slot;
+  }
+
+  invalidate(id: string) {
+    const previous = this.slots.get(id);
+    const next = { id, abort: new AbortController() };
+    this.slots.set(id, next);
+    previous?.abort.abort(new Error('连接已停止或被替换'));
+    const closed = this.sequence(id, () => this.close(previous));
+    return { next, closed };
+  }
+
+  async adapter(slot: ConnectionSlot) {
+    const outcome = await slot.ready;
+    if (!outcome) throw new Error('连接运行时尚未创建');
+    if ('error' in outcome) throw outcome.error;
+    return outcome.adapter;
+  }
+
+  async status(id: string) {
+    const outcome = await this.slots.get(id)?.ready;
+    return outcome && 'adapter' in outcome ? outcome.adapter.status() : 'disconnected';
+  }
+
+  private async close(slot?: ConnectionSlot) {
+    const outcome = await slot?.ready;
+    // A failed factory has no adapter to close; adapter() exposes its error.
+    if (outcome && 'adapter' in outcome) await outcome.adapter.close();
+  }
+
+  async write(slot: ConnectionSlot, action: () => Promise<unknown>) {
+    return this.sequence(slot.id, async () => {
+      if (!this.current(slot)) return false;
+      await action();
+      return true;
+    });
+  }
+
+  private async sequence<T>(id: string, action: () => Promise<T>) {
+    const previous = this.writes.get(id) ?? Promise.resolve();
+    const pending = previous.then(action, action);
+    this.writes.set(id, pending);
+    try {
+      return await pending;
+    } finally {
+      if (this.writes.get(id) === pending) this.writes.delete(id);
+    }
+  }
+
+  async shutdown() {
+    const slots = [...this.slots.values()];
+    const outcomes = await Promise.allSettled(slots.map((slot) => this.invalidate(slot.id).closed));
+    const errors = outcomes
+      .filter((outcome) => outcome.status === 'rejected')
+      .map((outcome) => outcome.reason);
+    if (errors.length) throw new AggregateError(errors, '关闭 MCP 连接失败');
+  }
+}
