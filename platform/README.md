@@ -2,6 +2,8 @@
 
 独立于现有 MCPHub 的中文、自托管工具与设备管理平台。Pi 运行时随平台依赖一起安装；MCP 连接（包括 Pi 桥接）无需启用内置 Agent 或配置模型。使用 Better-T-Stack 脚手架、React/Vite、shadcn/ui（Base UI）、Hono、PostgreSQL/Drizzle、Better Auth；Go 连接器主动连接平台。
 
+`platform/` 是完整的项目根目录，依赖、锁文件、环境配置、数据库迁移、测试和部署均在本目录内。可以把整个目录单独复制出来安装和构建，无需安装或启动外层 MCPHub。当前文件由外层 Git 仓库统一跟踪；这是代码存放方式，不构成运行依赖。MCPHub 仅作为实现参考和可选的配置导入来源，两者不共用配置或数据库。
+
 ## 本地启动
 
 要求 Node.js 22.19+、pnpm **10.12.4**、PostgreSQL 17；构建设备连接器需要 Go 1.25+。

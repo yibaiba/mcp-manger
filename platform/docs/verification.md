@@ -2,6 +2,8 @@
 
 日期：2026-10-26。环境：macOS amd64、Node 24.17.0、pnpm 10.12.4、Go 1.26.4、本机 Docker PostgreSQL 17。所有实现位于独立 `platform/`；原 MCPHub 工作区已有改动保留，没有切换旧连接或迁移旧 OAuth。
 
+项目独立性复验：仅复制 `platform/` 到仓库外的临时目录，排除 `node_modules`、`.env`、运行数据和构建产物。在该目录执行 `pnpm install --frozen-lockfile --offline`、`pnpm check-types`、`pnpm build`，以及连接器的 `go test -timeout 60s ./...`，全部通过。未复制外层 MCPHub 文件；此项证明独立安装、类型检查、构建和 Go 单测，不代表在缺少数据库配置时完成了应用启动或后端集成测试。
+
 ## 已通过
 
 | 项目         | 证据与范围                                                                                                                                                                                                                                                                 |
