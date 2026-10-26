@@ -1,3 +1,6 @@
+import { z } from 'zod';
+import { availablePermissionTools } from '../permissions/tools.js';
+import type { RequestService } from '../permissions/requestService.js';
 import {
   Server,
   type ServerContext,
@@ -17,6 +20,7 @@ import { currentExecution, withExecution } from './executionContext.js';
 import { legacyToolDefinition, parseTool, isInputRequiredResult } from '@platform/mcp';
 
 export type GatewayHandlers = {
+  requests: RequestService;
   profiles: ProfileService;
   invocations: InvocationService;
   interactions: import('../interactions/interactionService.js').InteractionService;
@@ -31,6 +35,8 @@ export async function createGatewayServer(
     withExecution(
       {
         identity: principal.credentialId,
+        ownerId: principal.ownerId,
+        credentialId: principal.credentialId,
         profileId: principal.profileId,
         entry: 'gateway',
         sessionId: input.channel,
@@ -66,16 +72,44 @@ export async function createGatewayServer(
     await input.profiles.authenticate(principal.profileId, principal.token);
     const rows = await input.profiles.catalog(principal.ownerId, principal.profileId);
     return {
-      tools: rows.map((row) => {
-        const definition = {
-          ...parseTool(scopeToolDefinition(row.connectionId, row.definition)),
-          name: row.id,
-        };
-        return input.era === 'legacy' ? legacyToolDefinition(definition) : definition;
-      }),
+      tools: [
+        ...(await availablePermissionTools(input.requests, access())),
+        ...rows.map((row) => {
+          const definition = {
+            ...parseTool(scopeToolDefinition(row.connectionId, row.definition)),
+            name: row.id,
+          };
+          return input.era === 'legacy' ? legacyToolDefinition(definition) : definition;
+        }),
+      ],
     };
   });
   setHandler('tools/call', async (request, context) => {
+    const name = request.params.name;
+    if (name === 'platform_permissions_catalog')
+      return {
+        content: [{ type: 'text', text: JSON.stringify(await input.requests.catalog(access())) }],
+      };
+    if (name === 'platform_permissions_request')
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(await input.requests.create(access(), request.params.arguments)),
+          },
+        ],
+      };
+    if (name === 'platform_permissions_status')
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(
+              await input.requests.status(access(), z.uuid().parse(request.params.arguments?.id)),
+            ),
+          },
+        ],
+      };
     const state = context.mcpReq.requestState();
     if (typeof state === 'string')
       return input.interactions.respond({

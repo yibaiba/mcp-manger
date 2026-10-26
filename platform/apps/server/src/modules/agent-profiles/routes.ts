@@ -1,3 +1,4 @@
+import type { Services } from '../../services.js';
 import { z } from 'zod';
 import { clientPresets, exportClient } from './clientExport.js';
 import { Hono } from 'hono';
@@ -8,6 +9,9 @@ import type { Gateway } from '../mcp/gateway.js';
 import type { PiService } from '../pi-runtime/piService.js';
 export function profileRoutes(deps: {
   profiles: ProfileService;
+  connections: Services['connections'];
+  access: Services['access'];
+  requests: Services['requests'];
   invocations: InvocationService;
   gateway: Gateway;
   pi: PiService;
@@ -18,6 +22,9 @@ export function profileRoutes(deps: {
   app.post('/', async (c) => c.json(await deps.profiles.save(owner(c), await c.req.json()), 201));
   app.put('/:id', async (c) => {
     const profile = await deps.profiles.save(owner(c), await c.req.json(), paramId(c));
+    await deps.access.changed();
+    await deps.requests.reconcile(paramId(c));
+    await deps.connections.closeProfile(paramId(c));
     await deps.gateway.profileChanged(paramId(c));
     await deps.pi.revokeProfile(paramId(c));
     return c.json(profile);
@@ -54,6 +61,9 @@ export function profileRoutes(deps: {
   app.get('/keys/all', async (c) => c.json(await deps.profiles.keys(owner(c))));
   app.delete('/keys/:id', async (c) => {
     await deps.profiles.revoke(owner(c), paramId(c));
+    await deps.access.changed();
+    for (const profile of await deps.profiles.list(owner(c)))
+      await deps.requests.reconcile(profile.id);
     await deps.gateway.revoke(paramId(c));
     return c.json({ revoked: true });
   });

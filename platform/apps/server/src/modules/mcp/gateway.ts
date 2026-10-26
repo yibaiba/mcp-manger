@@ -71,6 +71,9 @@ export class Gateway {
     return withExecution(
       {
         identity: principal.credentialId,
+        ownerId: principal.ownerId,
+        profileId: principal.profileId,
+        credentialId: principal.credentialId,
         entry: 'gateway',
         sessionId: channel,
         capabilities: {},
@@ -133,6 +136,9 @@ export class Gateway {
       return withExecution(
         {
           identity: principal.credentialId,
+          ownerId: principal.ownerId,
+          profileId: principal.profileId,
+          credentialId: principal.credentialId,
           entry: 'gateway',
           sessionId: session.channel,
           capabilities: session.server.getClientCapabilities() ?? {},
@@ -158,7 +164,9 @@ export class Gateway {
     const server = await withExecution(
       {
         identity: principal.credentialId,
+        ownerId: principal.ownerId,
         profileId: principal.profileId,
+        credentialId: principal.credentialId,
         entry: 'gateway',
         sessionId: channel,
         capabilities: parsed.params.capabilities,
@@ -229,21 +237,38 @@ export class Gateway {
       await this.revoke(principal.credentialId);
       return false;
     }
-    if (event.notification.method === 'notifications/resources/updated') {
-      const uri = event.notification.params?.uri;
-      if (typeof uri !== 'string') return false;
-      try {
-        await this.deps.content.resolveResource(
-          { ...principal, principal },
-          scopedUri(event.connectionId, uri),
+    return withExecution(
+      {
+        ownerId: principal.ownerId,
+        profileId: principal.profileId,
+        identity: principal.credentialId,
+        credentialId: principal.credentialId,
+        entry: 'gateway',
+        sessionId: 'notification',
+        capabilities: {},
+      },
+      async () => {
+        if (event.notification.method === 'notifications/resources/updated') {
+          const uri = event.notification.params?.uri;
+          if (typeof uri !== 'string') return false;
+          try {
+            await this.deps.content.resolveResource(
+              { ...principal, principal },
+              scopedUri(event.connectionId, uri),
+            );
+            return true;
+          } catch (error) {
+            if (error instanceof AppError && error.code === 'RESOURCE_FORBIDDEN') return false;
+            throw error;
+          }
+        }
+        return this.deps.content.eventVisible(
+          principal,
+          event.connectionId,
+          event.notification.method,
         );
-        return true;
-      } catch (error) {
-        if (error instanceof AppError && error.code === 'RESOURCE_FORBIDDEN') return false;
-        throw error;
-      }
-    }
-    return this.deps.content.eventVisible(principal, event.connectionId, event.notification.method);
+      },
+    );
   }
   async revoke(credentialId: string) {
     this.deps.invocations.revoke({ credentialId });
@@ -270,6 +295,20 @@ export class Gateway {
         affected.add(entry.principal.credentialId);
     }
     await this.remove((principal) => affected.has(principal.credentialId));
+  }
+  async permissionsChanged(profileId: string) {
+    for (const session of this.sessions.values()) {
+      if (session.principal.profileId !== profileId) continue;
+      await session.server.notification({ method: 'notifications/tools/list_changed' });
+      await session.server.notification({ method: 'notifications/prompts/list_changed' });
+      await session.server.notification({ method: 'notifications/resources/list_changed' });
+    }
+    for (const entry of this.modern.values()) {
+      if (entry.principal.profileId !== profileId) continue;
+      entry.handler.notify.toolsChanged();
+      entry.handler.notify.promptsChanged();
+      entry.handler.notify.resourcesChanged();
+    }
   }
   async profileChanged(profileId: string) {
     this.deps.invocations.revoke({ profileId });

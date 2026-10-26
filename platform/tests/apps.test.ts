@@ -1,3 +1,5 @@
+import { tasks, temporaryGrants } from '../packages/db/src/index.js';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { harness } from './harness.js';
@@ -66,10 +68,18 @@ test('platform App calls use current grants and end on refresh without replaying
     identity: `pi:${profile.id}`,
     entry: 'pi' as const,
     taskId: crypto.randomUUID(),
+    ownerId: account.ownerId,
     profileId: profile.id,
     sessionId: 'test',
     capabilities: PLATFORM_CAPABILITIES,
   };
+  await h.db.insert(tasks).values({
+    id: execution.taskId,
+    ownerId: account.ownerId,
+    profileId: profile.id,
+    prompt: 'App host fixture',
+    status: 'running',
+  });
   const result = await withExecution(execution, () =>
     h.services.invocations.call({
       ownerId: account.ownerId,
@@ -156,4 +166,76 @@ test('call event streams expose only the authenticated owner and release their s
   expect(received).toContain('own-call');
   expect(received).not.toContain('secret');
   await reader.cancel();
+});
+
+test('temporary App UI resources and app-only tools are authorized separately and revocation ends the view', async () => {
+  const s = await setup();
+  const entries = await h.services.content.catalog({ ownerId: s.account.ownerId });
+  const show = s.tools.find((tool) => tool.name === 'show')!;
+  await h.services.profiles.save(
+    s.account.ownerId,
+    {
+      name: 'temporary UI',
+      toolIds: [show.id],
+      requestable: {
+        toolIds: s.tools.map((tool) => tool.id),
+        contentIds: entries.map((entry) => entry.id),
+        artifactIds: [],
+      },
+    },
+    s.profile.id,
+  );
+  const taskId = crypto.randomUUID();
+  await h.db.insert(tasks).values({
+    id: taskId,
+    ownerId: s.account.ownerId,
+    profileId: s.profile.id,
+    prompt: 'temporary App',
+    status: 'running',
+  });
+  await withExecution(
+    {
+      ownerId: s.account.ownerId,
+      profileId: s.profile.id,
+      identity: `pi:${s.profile.id}`,
+      taskId,
+      entry: 'pi',
+      sessionId: taskId,
+      capabilities: PLATFORM_CAPABILITIES,
+    },
+    async () => {
+      const access = { ownerId: s.account.ownerId, profileId: s.profile.id };
+      const directory = (await h.services.requests.catalog(access)) as { toolIds: string[] };
+      expect(directory.toolIds).not.toContain(
+        s.tools.find((tool) => tool.name === 'app_action')!.id,
+      );
+      const request = await h.services.requests.create(access, {
+        permissions: { toolIds: [], contentIds: entries.map((entry) => entry.id), artifactIds: [] },
+        reason: 'App UI only',
+        idempotencyKey: 'app',
+      });
+      await h.services.requests.decide(s.account.ownerId, request.id, {
+        decision: 'approved',
+        permissions: request.requested,
+      });
+      const result = await h.services.invocations.call({
+        ...access,
+        toolId: show.id,
+        arguments: {},
+      });
+      const id = String(result._meta!['platform/appSession']);
+      const before = upstream.calls();
+      await expect(
+        h.services.apps.call(s.account.ownerId, id, { name: 'app_action' }),
+      ).rejects.toThrow('未授权');
+      expect(upstream.calls()).toBe(before);
+      const [grant] = await h.db
+        .select()
+        .from(temporaryGrants)
+        .where(eq(temporaryGrants.requestId, request.id));
+      await h.services.requests.revoke(s.account.ownerId, grant!.id);
+      expect(h.services.apps.list(s.account.ownerId, taskId)).toHaveLength(0);
+      await expect(h.services.apps.view(s.account.ownerId, id)).rejects.toThrow('已结束');
+    },
+  );
 });

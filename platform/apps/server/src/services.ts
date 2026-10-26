@@ -1,8 +1,11 @@
+import { RequestService } from './modules/permissions/requestService.js';
+import { requestCatalog } from './modules/permissions/requestCatalog.js';
+import { HandoffService } from './modules/handoffs/handoffService.js';
+import { AccessService } from './modules/permissions/accessService.js';
 import { createOpenApiAdapter } from './modules/openapi/adapter.js';
 import { ApiCredentialStore } from './modules/openapi/credentialStore.js';
 import { ApiOAuthService } from './modules/openapi/oauthService.js';
 import { currentExecution } from './modules/mcp/executionContext.js';
-import { AppError } from './shared/errors.js';
 import { RuntimeEvents } from './shared/runtimeEvents.js';
 import { InteractionService } from './modules/interactions/interactionService.js';
 import { AppSessionService } from './modules/apps/appSessionService.js';
@@ -56,12 +59,11 @@ export function createServices(db: Database, config: Config) {
           artifacts,
           oauth: apiOAuth,
           authorizeArtifact: async (id) => {
-            const profileId = currentExecution()?.profileId;
-            if (
-              profileId &&
-              !(await profiles.owned(context.ownerId, profileId)).artifactIds.includes(id)
-            )
-              throw new AppError('ARTIFACT_FORBIDDEN', '此产物未授权给当前 Agent', 403);
+            await access.assert(
+              { ownerId: context.ownerId, profileId: currentExecution()?.profileId },
+              'artifactIds',
+              id,
+            );
           },
         });
       if (context.config.adapter === 'device')
@@ -77,6 +79,15 @@ export function createServices(db: Database, config: Config) {
     },
   });
   const profiles = new ProfileService(db, connections);
+  const access = new AccessService({
+    db,
+    binding: async (ownerId, id) => {
+      const context = await connections.context(ownerId, id);
+      const binding = await connections.bindings.owned(ownerId, context.bindingId!);
+      return `${binding.id}:${binding.revision}:${(await connections.owned(ownerId, id)).revision}`;
+    },
+  });
+  profiles.access = access;
   const interactions = new InteractionService({ db, vault });
   const invocations: InvocationService = new InvocationService({
     db,
@@ -105,10 +116,24 @@ export function createServices(db: Database, config: Config) {
     send: (ownerId, input) => pi.start(ownerId, input),
     sandboxOrigin,
   });
-  const gateway = new Gateway({ profiles, invocations, content, connections, interactions });
+  const requests: RequestService = new RequestService({
+    db,
+    access,
+    changed: (id) => gateway.permissionsChanged(id),
+    catalog: (access) => requestCatalog({ db, profiles, connections, content }, access),
+  });
+  const gateway: Gateway = new Gateway({
+    profiles,
+    invocations,
+    content,
+    connections,
+    interactions,
+    requests,
+  });
   const skills = new SkillService({ db, broker, devices, profiles });
   const artifacts = new ArtifactService({
     db,
+    access,
     files: new DiskFileStore(resolve(config.DATA_DIR, 'artifacts')),
     broker,
     devices,
@@ -122,10 +147,21 @@ export function createServices(db: Database, config: Config) {
     invocations,
     skills,
     content,
+    artifacts,
     events,
   });
+  pi.requests = requests;
+  const handoffs = new HandoffService({
+    db,
+    fail: (id, error) => pi.store.update(id, { status: 'failed', error, endedAt: new Date() }),
+    publicUrl: config.PUBLIC_URL,
+    start: (ownerId, input, id) => pi.start(ownerId, input, id),
+  });
   return {
+    requests,
+    handoffs,
     broker,
+    access,
     events,
     devices,
     apiOAuth,

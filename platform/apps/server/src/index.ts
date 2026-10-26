@@ -35,6 +35,7 @@ await db
   .set({ status: 'unknown', error: '平台重启；请检查目标文件' })
   .where(eq(transfers.status, 'streaming'));
 await services.pi.recover();
+await services.requests.recover();
 await services.interactions.recover();
 const app = createApp({ db, auth, config, services });
 const server = serve({ fetch: app.fetch, port: config.PORT });

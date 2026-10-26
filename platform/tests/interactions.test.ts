@@ -10,10 +10,72 @@ import { Client as LegacyClient } from '@modelcontextprotocol/sdk/client/index.j
 import { StreamableHTTPClientTransport as LegacyTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { harness } from './harness.js';
+import { withExecution } from '../apps/server/src/modules/mcp/executionContext.js';
+import { temporaryGrants } from '../packages/db/src/index.js';
+import { eq } from 'drizzle-orm';
 let h: Awaited<ReturnType<typeof harness>>;
 let upstream: ReturnType<typeof serve>;
 let url: string;
 let dispatched = 0;
+test('revoking temporary tool permission ends interaction without dispatching its continuation', async () => {
+  const s = await setup();
+  await s.account.request(`/calls/${s.pending.callId}/cancel`, { method: 'POST' });
+  const tool = (await h.services.profiles.catalog(s.account.ownerId)).find(
+    (row) => row.connectionId === s.connection.id,
+  )!;
+  const profile = (await h.services.profiles.save(s.account.ownerId, {
+    name: 'temporary interaction',
+    requestable: { toolIds: [tool.id], contentIds: [], artifactIds: [] },
+  }))!;
+  const key = await h.services.profiles.issue(s.account.ownerId, profile.id);
+  const principal = await h.services.profiles.authenticate(profile.id, key.token);
+  await withExecution(
+    {
+      ownerId: s.account.ownerId,
+      profileId: profile.id,
+      identity: key.id,
+      credentialId: key.id,
+      entry: 'gateway',
+      sessionId: 'temporary',
+      capabilities: { elicitation: { form: {} } },
+    },
+    async () => {
+      const access = { ownerId: s.account.ownerId, profileId: profile.id };
+      const request = await h.services.requests.create(access, {
+        permissions: { toolIds: [tool.id], contentIds: [], artifactIds: [] },
+        reason: 'interactive permission',
+        idempotencyKey: 'interactive',
+      });
+      await h.services.requests.decide(s.account.ownerId, request.id, {
+        decision: 'approved',
+        permissions: request.requested,
+      });
+      const before = dispatched;
+      const result = await h.services.invocations.dispatch({
+        ...access,
+        principal,
+        toolId: tool.id,
+        arguments: {},
+      });
+      expect(dispatched - before).toBe(1);
+      const [grant] = await h.db
+        .select()
+        .from(temporaryGrants)
+        .where(eq(temporaryGrants.requestId, request.id));
+      await h.services.requests.revoke(s.account.ownerId, grant!.id);
+      await expect(
+        h.services.interactions.respond({
+          ownerId: s.account.ownerId,
+          id: String(result.interactionId),
+          credentialId: key.id,
+          toolId: tool.id,
+          responses: { question: { action: 'decline' } },
+        }),
+      ).rejects.toThrow('交互已结束');
+      expect(dispatched - before).toBe(1);
+    },
+  );
+});
 beforeAll(async () => {
   h = await harness();
   const handler = createMcpHandler(() => {

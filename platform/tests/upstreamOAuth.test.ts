@@ -1,3 +1,4 @@
+import { withExecution } from '../apps/server/src/modules/mcp/executionContext.js';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
@@ -75,11 +76,12 @@ test('official SDK upstream OAuth callback, refresh, restart persistence and rev
   ).rejects.toThrow('授权状态');
 });
 
-async function oauthFixture(options: { expiresIn?: number } = {}) {
+async function oauthFixture(options: { expiresIn?: number; multipleIdentities?: boolean } = {}) {
   const mcp = await fixtureMcp();
   const app = new Hono();
   let origin = '';
   let current = '';
+  const validTokens = new Set<string>();
   let refreshes = 0;
   let dispatches = 0;
   const agents: string[] = [];
@@ -105,6 +107,7 @@ async function oauthFixture(options: { expiresIn?: number } = {}) {
     const input = new URLSearchParams(await c.req.text());
     if (input.get('grant_type') === 'refresh_token') refreshes++;
     current = randomBytes(16).toString('hex');
+    validTokens.add(current);
     return c.json({
       access_token: current,
       refresh_token: randomBytes(16).toString('hex'),
@@ -118,7 +121,11 @@ async function oauthFixture(options: { expiresIn?: number } = {}) {
       ((await c.req.raw.clone().json()) as { method?: string }).method === 'tools/call'
     )
       dispatches++;
-    if (!current || c.req.header('Authorization') !== `Bearer ${current}`)
+    if (
+      options.multipleIdentities
+        ? !validTokens.has((c.req.header('Authorization') ?? '').replace(/^Bearer /, ''))
+        : !current || c.req.header('Authorization') !== `Bearer ${current}`
+    )
       return new Response(null, {
         status: 401,
         headers: {
@@ -229,6 +236,124 @@ test('Pi owns OAuth exchange and proactive refresh while a rejected tool is disp
     expect(fixture.refreshes()).toBe(1);
   } finally {
     await h.services.pi.close();
+    await fixture.close();
+  }
+});
+
+test('Agent dedicated OAuth bindings keep two upstream accounts and per-entry sessions separate', async () => {
+  const fixture = await oauthFixture({ multipleIdentities: true });
+  const account = await h.signup();
+  let connectionId: string | undefined;
+  try {
+    const connection = await h.services.connections.create(account.ownerId, {
+      name: 'dedicated OAuth',
+      adapter: 'direct',
+      transport: 'http',
+      mode: 'existing',
+      url: `${fixture.origin}/mcp`,
+      oauth: { clientId: 'registered-test' },
+    });
+    connectionId = connection.id;
+    const profiles = await Promise.all(
+      ['A', 'B'].map((name) =>
+        h.services.profiles.save(account.ownerId, {
+          name,
+          connectionIdentities: { [connection.id]: 'profile' },
+        }),
+      ),
+    );
+    const contexts = [];
+    for (const profile of profiles) {
+      const context = await withExecution(
+        {
+          ownerId: account.ownerId,
+          profileId: profile!.id,
+          identity: `test:${profile!.id}`,
+          entry: 'dashboard',
+          sessionId: profile!.id,
+          capabilities: {},
+        },
+        () => h.services.connections.context(account.ownerId, connection.id),
+      );
+      const started = await h.services.upstreamOAuth.start(context);
+      await h.services.upstreamOAuth.complete(context, {
+        code: 'test-code',
+        state: new URL(started.authorizationUrl!).searchParams.get('state')!,
+      });
+      contexts.push(context);
+    }
+    let toolId = '';
+    for (const context of contexts)
+      await withExecution(
+        {
+          ownerId: account.ownerId,
+          profileId: context.profileId!,
+          identity: `test:${context.profileId}`,
+          entry: 'dashboard',
+          sessionId: context.profileId!,
+          capabilities: {},
+        },
+        async () => {
+          const discovered = await h.services.connections.discover(account.ownerId, connection.id);
+          expect(discovered[0]?.name).toBe('echo');
+          toolId = discovered[0]!.id;
+        },
+      );
+    const [a, b] = contexts;
+    expect(a!.bindingId).not.toBe(b!.bindingId);
+    const aToken = (await h.services.upstreamOAuth.provider(a!).tokens())!.access_token;
+    const bToken = (await h.services.upstreamOAuth.provider(b!).tokens())!.access_token;
+    expect(aToken).not.toBe(bToken);
+    const profileA = profiles[0]!;
+    await h.services.profiles.save(
+      account.ownerId,
+      { name: profileA.name, requestable: { toolIds: [toolId], contentIds: [], artifactIds: [] } },
+      profileA.id,
+    );
+    const key = await h.services.profiles.issue(account.ownerId, profileA.id);
+    const pending = await withExecution(
+      {
+        ownerId: account.ownerId,
+        profileId: profileA.id,
+        credentialId: key.id,
+        identity: key.id,
+        entry: 'gateway',
+        sessionId: 'approval',
+        capabilities: {},
+      },
+      () =>
+        h.services.requests.create(
+          { ownerId: account.ownerId, profileId: profileA.id },
+          {
+            permissions: { toolIds: [toolId], contentIds: [], artifactIds: [] },
+            reason: 'OAuth identity generation',
+            idempotencyKey: 'oauth-generation',
+          },
+        ),
+    );
+    expect(
+      (
+        await account.request(
+          `/connections/${connection.id}/bindings/${a!.bindingId}/oauth/start`,
+          { method: 'POST' },
+        )
+      ).status,
+    ).toBe(200);
+    expect((await h.services.requests.owned(account.ownerId, pending.id)).status).toBe(
+      'invalidated',
+    );
+    expect(
+      (
+        await account.request(`/connections/${connection.id}/bindings/${a!.bindingId}/oauth`, {
+          method: 'DELETE',
+        })
+      ).status,
+    ).toBe(200);
+    expect((await h.services.upstreamOAuth.status(b!)).authorized).toBe(true);
+    const headers = await h.services.upstreamOAuth.headers(b!);
+    expect(headers.Authorization).toBe(`Bearer ${bToken}`);
+  } finally {
+    if (connectionId) await h.services.connections.close(account.ownerId, connectionId);
     await fixture.close();
   }
 });
