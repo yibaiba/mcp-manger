@@ -4,7 +4,16 @@ import { Button } from '../../components/ui/button.js';
 import { Input } from '../../components/ui/input.js';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, json, type Tool, type Profile, type Skill, type Connection } from '../../lib/api.js';
+import {
+  api,
+  json,
+  type Tool,
+  type Profile,
+  type Skill,
+  type Connection,
+  type ContentEntry,
+} from '../../lib/api.js';
+import { ContentGrants } from './ContentGrants.js';
 import {
   Action,
   Code,
@@ -17,6 +26,10 @@ import {
 export default function ProfilesPage() {
   const profiles = useQuery({ queryKey: ['profiles'], queryFn: () => api<Profile[]>('/profiles') });
   const tools = useQuery({ queryKey: ['tools'], queryFn: () => api<Tool[]>('/tools') });
+  const catalog = useQuery({
+    queryKey: ['catalog'],
+    queryFn: () => api<ContentEntry[]>('/catalog'),
+  });
   const connections = useQuery({
     queryKey: ['connections'],
     queryFn: () => api<Connection[]>('/connections'),
@@ -32,13 +45,16 @@ export default function ProfilesPage() {
   });
   const [editing, setEditing] = useState<Profile>();
   const [key, setKey] = useState<unknown>();
+  const connectionNames = new Map(
+    connections.data?.map((connection) => [connection.id, connection.name]),
+  );
   return (
     <>
       <div className="page-heading">
         <div>
           <span className="eyebrow">AGENT PROFILES</span>
           <h1>Agent 配置</h1>
-          <p>每个入口只暴露明确允许的工具。内部 Pi 与外部 Agent 共用授权。</p>
+          <p>工具、提示词和资源分别授权。内部 Pi 与外部 Agent 共用权限。</p>
         </div>
       </div>
       <Feedback
@@ -48,7 +64,8 @@ export default function ProfilesPage() {
           skills.error ??
           keys.error ??
           connections.error ??
-          artifacts.error
+          artifacts.error ??
+          catalog.error
         }
       />
       <div className="overview-grid">
@@ -62,6 +79,7 @@ export default function ProfilesPage() {
                 body: json({
                   name: value(data, 'name'),
                   toolIds: data.getAll('toolId'),
+                  contentIds: data.getAll('contentId'),
                   skillVersionIds: data.getAll('skillVersionId'),
                   artifactIds: data.getAll('artifactId'),
                 }),
@@ -88,12 +106,17 @@ export default function ProfilesPage() {
                 >
                   <span>
                     <strong>{tool.name}</strong>
-                    <small>{connections.data?.find((c) => c.id === tool.connectionId)?.name}</small>
+                    <small>{connectionNames.get(tool.connectionId)}</small>
                   </span>
                 </CheckChoice>
               ))}
               {!tools.data?.length ? <small>先连接 MCP 并发现工具。</small> : null}
             </fieldset>
+            <ContentGrants
+              entries={catalog.data ?? []}
+              selected={editing?.contentIds ?? []}
+              connectionNames={connectionNames}
+            />
             <fieldset>
               <legend>Skill 版本</legend>
               {skills.data?.map((skill) => (

@@ -8,6 +8,7 @@ import { Search } from 'lucide-react';
 import { api, json, type Tool, type Connection } from '../../lib/api.js';
 import { Code, Empty, Feedback, Field, Form, value } from '../../components/shared/Controls.js';
 import { Button } from '../../components/ui/button.js';
+import { ContentCatalog } from './ContentCatalog.js';
 export default function ToolsPage() {
   const tools = useQuery({ queryKey: ['tools'], queryFn: () => api<Tool[]>('/tools') });
   const connections = useQuery({
@@ -15,6 +16,9 @@ export default function ToolsPage() {
     queryFn: () => api<Connection[]>('/connections'),
   });
   const [filter, setFilter] = useState('');
+  const connectionNames = new Map(
+    connections.data?.map((connection) => [connection.id, connection.name]),
+  );
   const [selected, setSelected] = useState<Tool>();
   const [result, setResult] = useState<unknown>();
   const controller = useRef<AbortController | null>(null);
@@ -53,10 +57,7 @@ export default function ToolsPage() {
                 }}
               >
                 <strong>{tool.name}</strong>
-                <small>
-                  {connections.data?.find((c) => c.id === tool.connectionId)?.name ??
-                    tool.connectionId}
-                </small>
+                <small>{connectionNames.get(tool.connectionId) ?? tool.connectionId}</small>
                 <p>{tool.definition.description ?? '未提供描述'}</p>
               </Button>
             ))
@@ -71,6 +72,9 @@ export default function ToolsPage() {
               <small className="break-all">稳定标识：{selected.id}</small>
               <Disclosure title="参数结构">
                 <Code value={selected.definition.inputSchema} />
+              </Disclosure>
+              <Disclosure title="完整工具定义（输出结构与元数据）">
+                <Code value={selected.definition} />
               </Disclosure>
               <Form
                 key={selected.id}
@@ -109,6 +113,7 @@ export default function ToolsPage() {
           )}
         </Card>
       </div>
+      <ContentCatalog connectionNames={connectionNames} />
     </>
   );
 }

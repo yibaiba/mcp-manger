@@ -1,3 +1,12 @@
+import {
+  discoverCatalog,
+  executeOperation,
+  executeTool,
+  observeNotifications,
+  type Client,
+  type McpCatalog,
+  type McpOperation,
+} from '@platform/mcp';
 import { randomUUID } from 'node:crypto';
 import type { Context } from './runtime.js';
 import {
@@ -9,12 +18,27 @@ import {
   type ExtensionFactory,
   type ExtensionContext,
   type AgentToolResult,
+  type ExtensionAPI,
 } from '@earendil-works/pi-coding-agent';
 const adapterPackage: string = 'pi-mcp-adapter';
-const { createMcpAdapter } = (await import(adapterPackage)) as {
+const { createMcpAdapter, getMcpClient } = (await import(adapterPackage)) as {
+  getMcpClient(options: { pi: ExtensionAPI; name: string }): Client;
   createMcpAdapter(options: { config: Record<string, unknown> }): ExtensionFactory;
 };
 let session: AgentSession | undefined;
+let extension: ExtensionAPI;
+let catalog: McpCatalog | undefined;
+const observed = new WeakSet<Client>();
+function client() {
+  const current = getMcpClient({ pi: extension, name: server });
+  if (!observed.has(current)) {
+    observed.add(current);
+    observeNotifications(current, (notification) =>
+      process.send?.({ type: 'notification', notification }),
+    );
+  }
+  return current;
+}
 let server = '';
 let serverUrl = '';
 const active = new Map<string, AbortController>();
@@ -48,7 +72,12 @@ async function proxy(params: Record<string, unknown>, signal?: AbortSignal) {
     );
   return { content: result.content, details };
 }
-async function dispatch(method: string, params: Record<string, unknown>, signal: AbortSignal) {
+async function dispatch(
+  method: string,
+  params: Record<string, unknown>,
+  signal: AbortSignal,
+  requestId: string,
+) {
   if (method === 'initialize') {
     const context = params as Context;
     server = `u_${context.ownerId}_c_${context.id}`;
@@ -66,35 +95,40 @@ async function dispatch(method: string, params: Record<string, unknown>, signal:
       noContextFiles: true,
       noThemes: true,
       extensionFactories: [
-        createMcpAdapter({
-          config: {
-            mcpServers: {
-              [server]: {
-                ...(context.config.transport === 'stdio'
-                  ? {
-                      command: context.config.command,
-                      args: context.config.args,
-                      env: context.config.env,
-                      literalEnv: true,
-                      cwd: context.config.cwd ?? process.cwd(),
-                      debug: true,
-                    }
-                  : {
-                      url: context.config.url,
-                      httpTransport: context.config.transport === 'sse' ? 'sse' : 'streamable-http',
-                      headers: context.config.headers,
-                      oauth: context.config.oauth,
-                    }),
-                lifecycle: 'lazy',
+        (pi) => {
+          extension = pi;
+          return createMcpAdapter({
+            config: {
+              mcpServers: {
+                [server]: {
+                  ...(context.config.transport === 'stdio'
+                    ? {
+                        command: context.config.command,
+                        args: context.config.args,
+                        env: context.config.env,
+                        literalEnv: true,
+                        cwd: context.config.cwd ?? process.cwd(),
+                        debug: true,
+                      }
+                    : {
+                        url: context.config.url,
+                        httpTransport:
+                          context.config.transport === 'sse' ? 'sse' : 'streamable-http',
+                        headers: context.config.headers,
+                        oauth: context.config.oauth,
+                      }),
+                  lifecycle: 'lazy',
+                  protocolVersion: context.config.transport === 'sse' ? 'legacy' : 'auto',
+                },
+              },
+              settings: {
+                oauthCredentialStore: 'encrypted-file',
+                autoAuth: false,
+                outputGuard: false,
               },
             },
-            settings: {
-              oauthCredentialStore: 'encrypted-file',
-              autoAuth: false,
-              outputGuard: false,
-            },
-          },
-        }),
+          })(pi);
+        },
       ],
     });
     await loader.reload();
@@ -116,31 +150,25 @@ async function dispatch(method: string, params: Record<string, unknown>, signal:
     session = undefined;
     return { closed: true };
   }
-  if (method === 'discover') {
+  const onprogress = params.progress
+    ? (progress: unknown) => process.send?.({ type: 'progress', id: requestId, progress })
+    : undefined;
+  if (method === 'catalog' || method === 'discover') {
     await proxy({ connect: server }, signal);
-    const list = await proxy({ server }, signal);
-    if (!Array.isArray(list.details?.tools))
-      throw new Error('Pi adapter did not return a tool catalog');
-    const result = [];
-    for (const name of list.details.tools) {
-      const details = await proxy({ server, describe: name }, signal);
-      const tool = details.details?.tool as
-        | { originalName: string; description: string; inputSchema: Record<string, unknown> }
-        | undefined;
-      if (!tool?.inputSchema) throw new Error('Pi tool metadata is incomplete');
-      result.push({
-        name: tool.originalName,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      });
-    }
-    return result;
+    catalog = await discoverCatalog(client(), signal);
+    return method === 'discover' ? catalog.tools : catalog;
   }
+  if (method === 'request')
+    return executeOperation(client(), params.operation as McpOperation, { signal, onprogress });
   if (method === 'call') {
-    const result = await proxy({ server, tool: params.name, args: params.arguments }, signal);
-    if (!result.details?.mcpResult)
-      throw new Error('Pi adapter did not preserve the raw MCP result');
-    return result.details.mcpResult;
+    const tool = catalog?.tools.find((tool) => tool.name === params.name);
+    if (!tool) throw new Error('Pi tool has not been discovered');
+    return executeTool(client(), {
+      tool,
+      arguments: params.arguments as Record<string, unknown>,
+      signal,
+      onprogress,
+    });
   }
   if (method === 'action') {
     if (params.action === 'status') return proxy({ server }, signal);
@@ -174,7 +202,7 @@ process.on(
     }
     const abort = new AbortController();
     active.set(message.id, abort);
-    void dispatch(message.method, message.params, abort.signal)
+    void dispatch(message.method, message.params, abort.signal, message.id)
       .then(
         (result) => process.send?.({ id: message.id, result }),
         (error: unknown) =>

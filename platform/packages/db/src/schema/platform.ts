@@ -53,6 +53,8 @@ export const connections = pgTable(
     config: text('config').notNull(),
     status: text('status').notNull().default('disconnected'),
     error: text('error'),
+    protocolVersion: text('protocol_version'),
+    capabilities: jsonb('capabilities').$type<Record<string, unknown>>().default({}).notNull(),
     createdAt: created(),
   },
   (t) => [index('connections_owner').on(t.ownerId)],
@@ -79,10 +81,30 @@ export const profiles = pgTable('profiles', {
   ownerId: owner(),
   name: text('name').notNull(),
   toolIds: jsonb('tool_ids').$type<string[]>().default([]).notNull(),
+  contentIds: jsonb('content_ids').$type<string[]>().default([]).notNull(),
   skillVersionIds: jsonb('skill_version_ids').$type<string[]>().default([]).notNull(),
   artifactIds: jsonb('artifact_ids').$type<string[]>().default([]).notNull(),
   createdAt: created(),
 });
+export const mcpEntries = pgTable(
+  'mcp_entries',
+  {
+    id: text('id').primaryKey(),
+    ownerId: owner(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<'prompt' | 'resource' | 'template'>().notNull(),
+    name: text('name').notNull(),
+    locator: text('locator').notNull(),
+    definition: jsonb('definition').$type<Record<string, unknown>>().notNull(),
+    available: boolean('available').notNull().default(true),
+  },
+  (t) => [
+    index('mcp_entries_owner').on(t.ownerId),
+    uniqueIndex('mcp_entries_connection_locator').on(t.connectionId, t.kind, t.locator),
+  ],
+);
 export const accessKeys = pgTable('access_keys', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: owner(),

@@ -12,6 +12,7 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import type { TSchema } from 'typebox';
+import type { McpNotification, McpOperation, McpRequestOptions, Progress } from '@platform/mcp';
 type Tool = { name: string; description?: string; inputSchema: Record<string, unknown> };
 type Result = { content: { type: string; [key: string]: unknown }[]; [key: string]: unknown };
 export type Context = {
@@ -36,17 +37,40 @@ export async function bridge(options: { context: Context; directory: string }) {
     stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
   });
   let connected = false;
+  const listeners = new Set<(notification: McpNotification) => void>();
   const pending = new Map<
     string,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+    {
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      onprogress?: (progress: Progress) => void;
+    }
   >();
-  worker.on('message', (message: { id: string; result?: unknown; error?: string }) => {
-    const call = pending.get(message.id);
-    if (!call) return;
-    pending.delete(message.id);
-    if (message.error) call.reject(new Error(message.error));
-    else call.resolve(message.result);
-  });
+  worker.on(
+    'message',
+    (message: {
+      id: string;
+      type?: string;
+      result?: unknown;
+      error?: string;
+      notification?: McpNotification;
+      progress?: Progress;
+    }) => {
+      if (message.type === 'notification' && message.notification) {
+        for (const listener of listeners) listener(message.notification);
+        return;
+      }
+      if (message.type === 'progress' && message.progress) {
+        pending.get(message.id)?.onprogress?.(message.progress);
+        return;
+      }
+      const call = pending.get(message.id);
+      if (!call) return;
+      pending.delete(message.id);
+      if (message.error) call.reject(new Error(message.error));
+      else call.resolve(message.result);
+    },
+  );
   worker.on('error', (error) => {
     for (const call of pending.values()) call.reject(error);
     pending.clear();
@@ -57,7 +81,8 @@ export async function bridge(options: { context: Context; directory: string }) {
       call.reject(new Error(`Pi bridge exited (${code}); in-flight result unknown`));
     pending.clear();
   });
-  function request(method: string, params: unknown, inputSignal?: AbortSignal) {
+  function request(method: string, params: unknown, options: McpRequestOptions = {}) {
+    const inputSignal = options.signal;
     const deadline = AbortSignal.timeout(60_000);
     const signal = inputSignal ? AbortSignal.any([inputSignal, deadline]) : deadline;
     const id = randomUUID();
@@ -74,6 +99,7 @@ export async function bridge(options: { context: Context; directory: string }) {
       };
       const cleanup = () => signal?.removeEventListener('abort', abort);
       pending.set(id, {
+        onprogress: options.onprogress,
         resolve: (value) => {
           cleanup();
           resolve(value);
@@ -102,15 +128,31 @@ export async function bridge(options: { context: Context; directory: string }) {
   return {
     status: () => (connected ? ('connected' as const) : ('disconnected' as const)),
     discover: async (signal?: AbortSignal) => {
-      const tools = await request('discover', {}, signal);
+      const tools = await request('discover', {}, { signal });
       connected = true;
       return tools;
     },
-    call: (input: { name: string; arguments: Record<string, unknown>; signal?: AbortSignal }) =>
-      request('call', { name: input.name, arguments: input.arguments }, input.signal),
+    catalog: async (signal?: AbortSignal) => {
+      const catalog = await request('catalog', {}, { signal });
+      connected = true;
+      return catalog;
+    },
+    watch: (listener: (notification: McpNotification) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    request: (operation: McpOperation, options: McpRequestOptions = {}) =>
+      request('request', { operation, progress: !!options.onprogress }, options),
+    call: (input: { name: string; arguments: Record<string, unknown> } & McpRequestOptions) =>
+      request(
+        'call',
+        { name: input.name, arguments: input.arguments, progress: !!input.onprogress },
+        input,
+      ),
     action: (input: Record<string, unknown>) => request('action', input),
     close: async () => {
       connected = false;
+      listeners.clear();
       if (!worker.connected) return;
       try {
         await request('close', {});

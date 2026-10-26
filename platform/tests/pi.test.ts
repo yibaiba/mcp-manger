@@ -186,6 +186,7 @@ test('only built-in inference tasks require model configuration', async () => {
     profiles: h.services.profiles,
     invocations: h.services.invocations,
     skills: h.services.skills,
+    content: h.services.content,
   });
   await expect(
     pi.start(account.ownerId, { profileId: crypto.randomUUID(), prompt: 'run' }),

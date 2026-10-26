@@ -23,15 +23,16 @@ pnpm db:migrate
 pnpm dev
 ```
 
-管理界面 <http://localhost:4301>，API <http://localhost:4300>。在“连接”选择平台直连、Pi 桥接或设备连接器，添加 Streamable HTTP、旧版 SSE 或 stdio 服务，点击“连接 / 刷新工具”，再到“工具目录”实际调用。stdio 命令在所选执行位置运行：平台直连/Pi 使用平台主机（Docker 的 server 容器），设备连接器使用所选设备。服务返回错误会直接展示；连接配置中的请求头和环境变量加密保存在数据库，不在列表中返回。
+管理界面 <http://localhost:4301>，API <http://localhost:4300>。在“连接”选择平台直连、Pi 桥接或设备连接器，添加 Streamable HTTP、旧版 SSE 或 stdio 服务，点击“连接 / 刷新目录”，再到“工具目录”实际调用。stdio 命令在所选执行位置运行：平台直连/Pi 使用平台主机（Docker 的 server 容器），设备连接器使用所选设备。服务返回错误会直接展示；连接配置中的请求头和环境变量加密保存在数据库，不在列表中返回。
 
 开发启动从 `platform/.env` 读取配置；源代码生产启动 `pnpm start`，不依赖工作目录。`pnpm build` 验证后端编译并产出前端静态文件。后端部署使用 `tsx` 源码入口，以支持按需加载内置 Pi 运行时；不要直接运行 `apps/server/dist`。
 
 ## 已实现
 
-- 登录和用户隔离；MCP 连接、发现、真实调用、停止、错误诊断、稳定工具标识。
+- 登录和用户隔离；MCP 工具、Prompts、Resources 和资源模板的发现、调用/读取、独立授权与目录变更通知；停止、错误诊断和稳定标识。
 - Go WSS 配对、撤销、自动重连、关联请求、取消、断线结果未知；本地 stdio、HTTP/SSE 和托管进程。
-- Agent 配置按工具、Skill 版本、产物 ID 授权；同一 `/mcp/:profileId` 入口汇聚所有适配器；接入密钥和 OAuth PKCE。
+- Agent 配置按工具、Prompt/Resource/模板、Skill 版本、产物 ID 授权；同一 `/mcp/:profileId` 入口汇聚所有适配器；接入密钥和 OAuth PKCE。
+- MCP 2026-07-28 与旧会话协议双栈；完整元数据、进度和资源订阅；严格 Schema 校验，不自动重放工具调用。
 - 上游 OAuth 凭证加密、刷新、重启恢复和本地撤销；独立的可选 Pi 桥接和模型任务入口。
 - Skills ZIP/固定 Git commit 导入、内容哈希不可变版本、工具依赖检查、设备分发、指定版本回滚和本地修改冲突保护。
 - 文件流式上传/下载、SHA-256 校验、设备间转交；Agent 通过同一配置授权的下载接口获取结果。
@@ -45,7 +46,7 @@ pnpm dev
 pnpm check-types
 pnpm lint
 pnpm build
-pnpm test                   # 使用真实 PostgreSQL；核心与 Pi 分组，各进程硬超时 60 秒
+pnpm test                   # 使用真实 PostgreSQL；核心、Pi 与协议能力三组，各进程硬超时 60 秒
 cd connector
 go test -timeout 60s ./...
 go vet ./...

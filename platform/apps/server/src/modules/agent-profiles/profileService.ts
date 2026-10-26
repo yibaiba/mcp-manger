@@ -3,6 +3,7 @@ import {
   profiles,
   artifacts,
   tools,
+  mcpEntries,
   accessKeys,
   oauthGrants,
   skillVersions,
@@ -23,6 +24,15 @@ export class ProfileService {
   }
   async save(ownerId: string, input: unknown, id?: string) {
     const value = profileInput.parse(input);
+    const contentIds = [...new Set(value.contentIds)];
+    const entries = contentIds.length
+      ? await this.db
+          .select()
+          .from(mcpEntries)
+          .where(and(eq(mcpEntries.ownerId, ownerId), inArray(mcpEntries.id, contentIds)))
+      : [];
+    if (entries.length !== contentIds.length)
+      throw new AppError('INVALID_GRANTS', '选择的 Prompt 或 Resource 不属于当前用户');
     const toolIds = [...new Set(value.toolIds)];
     const versionIds = [...new Set(value.skillVersionIds)];
     const validTools = toolIds.length
@@ -56,14 +66,14 @@ export class ProfileService {
       await this.owned(ownerId, id);
       const [profile] = await this.db
         .update(profiles)
-        .set({ ...value, toolIds, skillVersionIds: versionIds })
+        .set({ ...value, contentIds, toolIds, skillVersionIds: versionIds })
         .where(eq(profiles.id, id))
         .returning();
       return profile;
     }
     const [profile] = await this.db
       .insert(profiles)
-      .values({ ...value, ownerId, toolIds, skillVersionIds: versionIds })
+      .values({ ...value, contentIds, ownerId, toolIds, skillVersionIds: versionIds })
       .returning();
     return profile;
   }

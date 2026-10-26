@@ -59,7 +59,7 @@ export class DeviceService {
   }
 }
 export async function reportDevice(db: Database, id: string, message: DeviceResponse) {
-  if (message.type === 'result') return;
+  if (message.type === 'result' || message.type === 'notification') return;
   const fields =
     message.type === 'hello'
       ? { os: message.os, version: message.version, hostname: message.hostname }

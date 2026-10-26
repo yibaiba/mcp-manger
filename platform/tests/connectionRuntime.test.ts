@@ -18,6 +18,17 @@ function adapter(close = vi.fn(async () => {})): ConnectionAdapter {
   return {
     status: () => 'connected',
     discover: async () => [],
+    catalog: async () => ({
+      tools: [],
+      prompts: [],
+      resources: [],
+      templates: [],
+      capabilities: {},
+    }),
+    request: async () => {
+      throw new Error('Unexpected content operation in runtime test');
+    },
+    watch: () => () => {},
     call: async () => ({ content: [] }),
     close,
   };

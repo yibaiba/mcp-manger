@@ -5,6 +5,8 @@ import { calls, type Database } from '@platform/db';
 import { AppError } from '../../shared/errors.js';
 import type { ProfileService, Principal } from '../agent-profiles/profileService.js';
 import type { ConnectionService } from './connectionService.js';
+import { parseTool, validateToolValue, type Progress } from '@platform/mcp';
+import { scopeResult } from './catalogEntries.js';
 export class InvocationService {
   private readonly active = new Map<
     string,
@@ -24,6 +26,7 @@ export class InvocationService {
     toolId: string;
     arguments: Record<string, unknown>;
     signal?: AbortSignal;
+    onprogress?: (progress: Progress) => void;
   }) {
     if (input.principal)
       await this.deps.profiles.authenticate(input.principal.profileId, input.principal.token);
@@ -59,9 +62,22 @@ export class InvocationService {
     try {
       const adapter = await this.deps.connections.adapter(input.ownerId, connection.id);
       signal.throwIfAborted();
-      const result = await adapter.call({ name: tool.name, arguments: input.arguments, signal });
+      const definition = parseTool(tool.definition);
+      validateToolValue({ tool: definition, field: 'inputSchema', value: input.arguments });
+      const result = await adapter.call({
+        name: tool.name,
+        arguments: input.arguments,
+        signal,
+        onprogress: input.onprogress,
+      });
+      if (!result.isError)
+        validateToolValue({
+          tool: definition,
+          field: 'outputSchema',
+          value: result.structuredContent,
+        });
       await this.finish(id, result.isError ? 'tool_error' : 'succeeded');
-      return result;
+      return scopeResult(connection.id, result);
     } catch (error) {
       const context = await this.deps.connections.context(input.ownerId, connection.id);
       const message = this.deps.connections.redact(error, context.config);

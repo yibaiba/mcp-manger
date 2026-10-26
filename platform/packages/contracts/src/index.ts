@@ -62,6 +62,7 @@ export const profileInput = z
   .object({
     name: z.string().trim().min(1),
     toolIds: z.array(z.string()).default([]),
+    contentIds: z.array(z.string()).default([]),
     skillVersionIds: z.array(idSchema).default([]),
     artifactIds: z.array(idSchema).default([]),
   })
@@ -70,6 +71,22 @@ export const callInput = z
   .object({ arguments: z.record(z.string(), z.unknown()).default({}) })
   .strict();
 export const deviceResponse = z.discriminatedUnion('type', [
+  z
+    .object({
+      v: z.literal(1),
+      type: z.literal('notification'),
+      connectionId: idSchema,
+      method: z.enum([
+        'notifications/tools/list_changed',
+        'notifications/prompts/list_changed',
+        'notifications/resources/list_changed',
+        'notifications/resources/updated',
+        'notifications/progress',
+      ]),
+      params: z.record(z.string(), z.unknown()).optional(),
+      requestId: idSchema.optional(),
+    })
+    .strict(),
   z
     .object({
       v: z.literal(1),
@@ -103,7 +120,15 @@ export type DeviceRequest = {
   v: 1;
   type: 'request';
   id: string;
-  method: 'discover' | 'call' | 'close' | 'skill.install' | 'artifact.receive' | 'artifact.send';
+  method:
+    | 'discover'
+    | 'catalog'
+    | 'mcp.request'
+    | 'call'
+    | 'close'
+    | 'skill.install'
+    | 'artifact.receive'
+    | 'artifact.send';
   deadline: string;
   params: Record<string, unknown>;
 };

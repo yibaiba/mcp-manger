@@ -2,7 +2,7 @@
 
 日期：2026-10-26。环境：macOS amd64、Node 24.17.0、pnpm 10.12.4、Go 1.26.4、本机 Docker PostgreSQL 17。所有实现位于独立 `platform/`；原 MCPHub 工作区已有改动保留，没有切换旧连接或迁移旧 OAuth。
 
-项目独立性复验：仅复制 `platform/` 到仓库外的临时目录，排除 `node_modules`、`.env`、运行数据和构建产物。在该目录执行 `pnpm install --frozen-lockfile --offline`、`pnpm check-types`、`pnpm build`，以及连接器的 `go test -timeout 60s ./...`，全部通过。未复制外层 MCPHub 文件；此项证明独立安装、类型检查、构建和 Go 单测，不代表在缺少数据库配置时完成了应用启动或后端集成测试。
+项目独立性复验：仅复制 `platform/` 到仓库外的临时目录，排除 `node_modules`、`.env`、运行数据和构建产物。在该目录执行 `pnpm install --frozen-lockfile --offline`、`pnpm check-types`、`pnpm build`，以及连接器的 `go test -timeout 60s ./...`，全部通过。本轮再次在新临时目录执行以上检查，并额外执行 `pnpm test:pi`；pnpm 自动应用 Pi 适配器补丁后，无模型真实桥接通过。未复制外层 MCPHub 文件；此项证明独立安装、类型检查、构建和 Go 单测，不代表在缺少数据库配置时完成了应用启动或后端集成测试。
 
 ## 已通过
 
@@ -11,7 +11,7 @@
 | TypeScript   | `pnpm check-types`：后端、共享包、内置 Pi、测试、React 类型检查                                                                                                                                                                                                            |
 | 静态检查     | `pnpm lint`：ESLint，无警告                                                                                                                                                                                                                                                |
 | 构建         | `pnpm build`：tsdown 后端与 Vite 生产前端                                                                                                                                                                                                                                  |
-| 自动化验收   | `pnpm test`，**36/36**；核心 29 项与 Pi 7 项分别在独立 Vitest 进程运行，各有 60 秒硬超时；本轮完整分组约 28 秒 + 24 秒，最终核心复验约 32 秒；运行前重新构建本机 Go 连接器                                                                                                 |
+| 自动化验收   | `pnpm test`，**44/44**；核心 29 项、Pi 7 项、目录/协议 8 项各有 60 秒硬超时；最终分组约 29 秒 / 22 秒 / 18 秒；运行前重新构建本机 Go 连接器                                                                                                                                |
 | Go           | `go test -timeout 60s ./...`、`go vet ./...`                                                                                                                                                                                                                               |
 | 三平台产物   | `pnpm connector:build`：darwin/linux/windows × amd64/arm64 六个二进制及 SHA256SUMS；交叉编译不等于实机通过                                                                                                                                                                 |
 | 传输矩阵     | 平台直连、Pi 桥接、Go 设备连接器 × Streamable HTTP / 旧版 SSE / stdio 全组合真实发现与调用；平台 stdio 验证 env/cwd、外部 Agent 转发和停止后子进程退出；Go SSE 验证请求结束后会话保留、取消单次调用后继续调用；Go 单测验证初始化取消会释放 HTTP 请求                       |
@@ -31,7 +31,19 @@
 
 首次将所有用例合并在同一 Vitest 进程运行时，触发了 60 秒硬超时，未记为通过。随后按计划把 Pi 验证与核心测试分组，每组仍保留 60 秒硬超时；默认 `pnpm test` 顺序执行所有分组，任一组失败则整体失败，不重试失败用例。最终核心复验、Pi 验证、类型检查、静态检查和构建均通过。
 
-参考来源、已落地与待迁移范围见 [MCPHub 参考与迁移记录](mcphub-reference.md)。本轮没有移植 Prompts/Resources、listChanged、SDK v2 双栈、完整进程树管理或 Schema 容错策略，也没有重跑原 MCPHub 测试。
+参考来源、已落地与待迁移范围见 [MCPHub 参考与迁移记录](mcphub-reference.md)。以上专项对应前一检查点；后续能力迁移如下。完整进程树管理仍待实机验证，原 MCPHub 测试未重跑。
+
+## Prompts、Resources、通知及新版协议迁移
+
+本轮新增 8 项集成用例：官方 SDK 2.3.1 真实现代上游、旧会话与现代外部客户端；Prompts/Resources 完整分页、资源模板匹配、稳定名称与 URI 隔离；无权限读取和跨账号授权拒绝；旧/新客户端订阅通知、单客户端退订不影响其他客户端、listChanged 刷新目录、配置撤销立即生效；draft-07、2019-09、2020-12 输入校验、无效 Schema 编译失败、合法布尔 Schema 等价表示、输出校验失败且仅执行一次；内置 Pi 内容工具使用当前授权；停止上游释放订阅不重新建连，显式重连后可重新订阅。Go 设备和 Pi 桥接使用同一真实协议服务，核对目录、元数据、资源读取、模板、进度及通知，无模型配置。
+
+完整 `pnpm test` 44 项、类型检查、ESLint、生产构建、Go 单测/vet、六平台架构连接器交叉构建均通过；迁移 `0002` 已应用并复跑确认。`docker compose config --quiet` 通过。平台直连 OAuth 使用 SDK v2，回归确认静态客户端与 token 的 issuer 绑定、回调、刷新、重启持久化及撤销后迟到写入拒绝；供应商联调仍未执行。
+
+浏览器使用现有本地验收账号与单独的本地协议测试服务：连接页显示协商版本 `2026-07-28`；目录显示分页后的两个 Prompts、两个 Resources、一个模板；实际获取 Prompt 并读取替换变量后的模板 URI，结果保留 `_meta` 和隔离 URI；Agent 配置提供独立 shadcn 复选框并验证点击状态；浏览器无 error/warn。验收连接随后停止，本地测试服务退出；没有把夹具记录成真实公网供应商通过。
+
+仅复制 `platform/` 的冻结离线安装、类型检查、构建、Go 单测和 Pi smoke 均通过，证明没有引用外层项目；本轮未在复制目录内运行需要数据库的完整后端集成测试。pnpm 提示未运行已有依赖 `@google/genai`、`protobufjs` 的安装脚本，桥接 smoke 通过；无模型推理仍不得据此宣称通过。
+
+严格 Schema 校验与不重放是本项目行为；未移植 MCPHub 的“非法 Schema 跳过”和工具恢复重试。本轮也未宣称可选 MCP Tasks、Apps UI、交互式输入能力已实现。
 
 ## 未通过或未执行的实机验收
 

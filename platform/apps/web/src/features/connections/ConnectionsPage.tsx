@@ -71,6 +71,7 @@ export default function ConnectionsPage() {
                       ? `· ${connection.adapter === 'device' ? '所选设备执行' : '平台主机执行'} `
                       : ''}
                     {connection.url ? `· ${connection.url}` : ''}
+                    {connection.protocolVersion ? ` · MCP ${connection.protocolVersion}` : ''}
                   </small>
                 </div>
                 <Status value={connection.status} />
@@ -84,7 +85,7 @@ export default function ConnectionsPage() {
                     )
                   }
                 >
-                  连接 / 刷新工具
+                  连接 / 刷新目录
                 </Action>
                 <Action
                   action={() => api(`/connections/${connection.id}/stop`, { method: 'POST' })}

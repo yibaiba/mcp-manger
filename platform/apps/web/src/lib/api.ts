@@ -38,17 +38,37 @@ export type Connection = {
   status: string;
   error: string | null;
   url?: string;
+  protocolVersion?: string | null;
+  capabilities?: Record<string, unknown>;
 };
 export type Tool = {
   id: string;
   name: string;
   connectionId: string;
-  definition: { description?: string; inputSchema: unknown };
+  definition: {
+    description?: string;
+    inputSchema: unknown;
+    outputSchema?: unknown;
+    [key: string]: unknown;
+  };
+};
+export type ContentEntry = {
+  id: string;
+  connectionId: string;
+  kind: 'prompt' | 'resource' | 'template';
+  name: string;
+  locator: string;
+  definition: {
+    description?: string;
+    arguments?: { name: string; description?: string; required?: boolean }[];
+    [key: string]: unknown;
+  };
 };
 export type Profile = {
   id: string;
   name: string;
   toolIds: string[];
+  contentIds: string[];
   skillVersionIds: string[];
   artifactIds: string[];
 };

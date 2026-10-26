@@ -28,11 +28,15 @@ function runGroup(args) {
   });
 }
 
-// Pi integration is verified independently; neither group extends the hard timeout.
+// Core, Pi and protocol integration each retain their own hard timeout.
 const requested = process.argv.slice(2);
 const groups = requested.length
   ? [requested]
-  : [['--exclude', 'tests/pi.test.ts'], ['tests/pi.test.ts']];
+  : [
+      ['--exclude', 'tests/pi.test.ts', '--exclude', 'tests/catalog*.test.ts'],
+      ['tests/pi.test.ts'],
+      ['tests/catalog.test.ts', 'tests/catalogAdapters.test.ts'],
+    ];
 for (const [index, args] of groups.entries()) {
   console.log(`Backend test group ${index + 1}/${groups.length}: ${args.join(' ')}`);
   const code = await runGroup(args);

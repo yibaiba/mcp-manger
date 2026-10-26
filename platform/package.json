@@ -29,20 +29,22 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
+    "@hono/node-server": "1.14.4",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@modelcontextprotocol/server": "2.3.1",
+    "@platform/pi-runtime": "workspace:*",
     "@types/node": "24.10.0",
     "@types/ws": "8.18.1",
-    "tsx": "4.21.0",
-    "vitest": "3.2.4",
-    "eslint": "10.9.1",
-    "typescript-eslint": "8.68.0",
-    "globals": "16.5.0",
-    "prettier": "3.6.2",
-    "@modelcontextprotocol/sdk": "1.32.2",
-    "@hono/node-server": "1.14.4",
     "drizzle-orm": "0.45.2",
+    "eslint": "10.9.1",
+    "globals": "16.5.0",
     "hono": "4.13.11",
-    "@platform/pi-runtime": "workspace:*"
+    "prettier": "3.6.2",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.68.0",
+    "vitest": "3.2.4"
   },
   "engines": {
     "node": ">=22.19.0"

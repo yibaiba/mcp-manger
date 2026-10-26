@@ -1,4 +1,4 @@
-import type { AdapterFactory, ConnectionAdapter, ConnectionContext } from './adapter.js';
+import type { ConnectionAdapter, ConnectionContext } from './adapter.js';
 
 type AdapterOutcome = { adapter: ConnectionAdapter } | { error: unknown };
 export type ConnectionSlot = {
@@ -11,15 +11,20 @@ export type ConnectionSlot = {
 export class ConnectionRuntime {
   private readonly slots = new Map<string, ConnectionSlot>();
   private readonly writes = new Map<string, Promise<unknown>>();
-  constructor(private readonly factory: AdapterFactory) {}
+  constructor(
+    private readonly factory: (
+      context: ConnectionContext,
+      slot: ConnectionSlot,
+    ) => Promise<ConnectionAdapter>,
+  ) {}
 
   acquire(context: ConnectionContext): ConnectionSlot {
     const current = this.slots.get(context.id);
     if (current?.ready) return current;
-    const slot = {
+    const slot: ConnectionSlot = {
       id: context.id,
       abort: new AbortController(),
-      ready: this.sequence(context.id, () => this.factory(context)).then<
+      ready: this.sequence(context.id, () => this.factory(context, slot)).then<
         AdapterOutcome,
         AdapterOutcome
       >(

@@ -19,7 +19,7 @@ func (d *Dispatch) Execute(ctx context.Context, method string, params json.RawMe
 		return nil, err
 	}
 	switch method {
-	case "discover", "call", "close":
+	case "discover", "catalog", "mcp.request", "call", "close":
 		return d.MCP.Execute(ctx, method, params)
 	case "skill.install":
 		return d.Skills.Install(params)
@@ -30,3 +30,5 @@ func (d *Dispatch) Execute(ctx context.Context, method string, params json.RawMe
 	}
 }
 func (d *Dispatch) Status() []map[string]string { return d.MCP.Status() }
+
+func (d *Dispatch) SetNotifier(notify func(mcpclient.Notification)) { d.MCP.SetNotifier(notify) }

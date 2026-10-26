@@ -8,15 +8,24 @@ import {
 } from '@platform/contracts';
 import type { WebSocket } from 'ws';
 import { AppError } from '../../shared/errors.js';
+import { z } from 'zod';
+import type { McpNotification, Progress } from '@platform/mcp';
+const progressSchema = z.object({
+  progress: z.number(),
+  total: z.number().optional(),
+  message: z.string().optional(),
+});
 
 type Pending = {
   deviceId: string;
   socket: WebSocket;
   finish: (value: unknown, error?: Error) => void;
+  onprogress?: (progress: Progress) => void;
 };
 export class DeviceBroker {
   private readonly sockets = new Map<string, WebSocket>();
   private readonly pending = new Map<string, Pending>();
+  private readonly listeners = new Map<string, Set<(event: McpNotification) => void>>();
   constructor(private readonly report: (id: string, message: DeviceResponse) => Promise<void>) {}
   online(id: string) {
     return this.sockets.get(id)?.readyState === 1;
@@ -56,7 +65,18 @@ export class DeviceBroker {
     });
   }
   private async receive(id: string, socket: WebSocket, raw: string) {
+    if (this.sockets.get(id) !== socket) return;
     const message = deviceResponse.parse(JSON.parse(raw));
+    if (message.type === 'notification') {
+      if (message.method === 'notifications/progress') {
+        const pending = message.requestId ? this.pending.get(message.requestId) : undefined;
+        if (pending?.socket === socket) pending.onprogress?.(progressSchema.parse(message.params));
+      } else {
+        for (const listener of this.listeners.get(`${id}:${message.connectionId}`) ?? [])
+          listener({ method: message.method, params: message.params });
+      }
+      return;
+    }
     if (message.type !== 'result') return this.report(id, message);
     const pending = this.pending.get(message.id);
     if (!pending || pending.socket !== socket) return;
@@ -71,6 +91,7 @@ export class DeviceBroker {
       method: DeviceRequest['method'];
       params: Record<string, unknown>;
       signal?: AbortSignal;
+      onprogress?: (progress: Progress) => void;
     },
   ) {
     const socket = this.sockets.get(deviceId);
@@ -95,14 +116,14 @@ export class DeviceBroker {
         if (error) reject(error);
         else resolve(value);
       };
-      this.pending.set(id, { deviceId, socket, finish });
+      this.pending.set(id, { deviceId, socket, finish, onprogress: input.onprogress });
       input.signal?.addEventListener('abort', cancel, { once: true });
       const request: DeviceRequest = {
         v: 1,
         type: 'request',
         id,
         method: input.method,
-        params: input.params,
+        params: { ...input.params, ...(input.onprogress ? { progressToken: id } : {}) },
         deadline: new Date(Date.now() + CALL_TIMEOUT_MS).toISOString(),
       };
       socket.send(JSON.stringify(request), (error) => {
@@ -114,6 +135,20 @@ export class DeviceBroker {
   disconnect(id: string) {
     this.sockets.get(id)?.terminate();
     this.sockets.delete(id);
+  }
+  watch(input: {
+    deviceId: string;
+    connectionId: string;
+    listener: (event: McpNotification) => void;
+  }) {
+    const key = `${input.deviceId}:${input.connectionId}`;
+    const listeners = this.listeners.get(key) ?? new Set();
+    this.listeners.set(key, listeners);
+    listeners.add(input.listener);
+    return () => {
+      listeners.delete(input.listener);
+      if (!listeners.size) this.listeners.delete(key);
+    };
   }
   close() {
     for (const id of this.sockets.keys()) this.disconnect(id);

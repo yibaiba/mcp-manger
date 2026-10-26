@@ -27,10 +27,12 @@ type Config struct {
 	Cwd       string            `json:"cwd"`
 }
 type Params struct {
-	ConnectionID string         `json:"connectionId"`
-	Config       Config         `json:"config"`
-	Name         string         `json:"name"`
-	Arguments    map[string]any `json:"arguments"`
+	ConnectionID  string         `json:"connectionId"`
+	Config        Config         `json:"config"`
+	Name          string         `json:"name"`
+	Arguments     map[string]any `json:"arguments"`
+	Operation     Operation      `json:"operation"`
+	ProgressToken string         `json:"progressToken"`
 }
 type Entry struct {
 	Session       *mcp.ClientSession
@@ -45,6 +47,8 @@ type Manager struct {
 	ctx       context.Context
 	stderr    io.Writer
 	transport http.RoundTripper
+	notifyMu  sync.RWMutex
+	notify    func(Notification)
 }
 
 func New(ctx context.Context, stderr io.Writer, transport http.RoundTripper) *Manager {
@@ -66,24 +70,19 @@ func (m *Manager) Execute(ctx context.Context, method string, raw json.RawMessag
 		return nil, err
 	}
 	switch method {
+	case "catalog":
+		return discoverCatalog(ctx, session)
+	case "mcp.request":
+		return requestOperation(ctx, session, p)
 	case "discover":
-		result := &mcp.ListToolsResult{Tools: []*mcp.Tool{}}
-		cursor := ""
-		for {
-			page, err := session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
-			if err != nil {
-				m.recordError(p.ConnectionID, err)
-				return nil, err
-			}
-			result.Tools = append(result.Tools, page.Tools...)
-			cursor = page.NextCursor
-			if cursor == "" {
-				break
-			}
-		}
-		return result, nil
+		result, err := collect(session.Tools(ctx, nil))
+		return &mcp.ListToolsResult{Tools: result}, err
 	case "call":
-		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: p.Name, Arguments: p.Arguments})
+		params := &mcp.CallToolParams{Name: p.Name, Arguments: p.Arguments}
+		if p.ProgressToken != "" {
+			params.SetProgressToken(p.ProgressToken)
+		}
+		result, err := session.CallTool(ctx, params)
 		if err != nil {
 			m.recordError(p.ConnectionID, err)
 			return nil, &DeliveryError{Cause: err}
@@ -127,7 +126,7 @@ func (m *Manager) connect(ctx context.Context, p Params) (*mcp.ClientSession, er
 		e.LastError = err.Error()
 		return nil, err
 	}
-	e.Session, e.cancelSession, err = m.openSession(ctx, transport)
+	e.Session, e.cancelSession, err = m.openSessionFor(ctx, transport, p.ConnectionID)
 	if err != nil {
 		e.LastError = err.Error()
 		return nil, err
@@ -135,11 +134,11 @@ func (m *Manager) connect(ctx context.Context, p Params) (*mcp.ClientSession, er
 	e.LastError = ""
 	return e.Session, nil
 }
-func (m *Manager) openSession(ctx context.Context, transport mcp.Transport) (*mcp.ClientSession, context.CancelFunc, error) {
+func (m *Manager) openSessionFor(ctx context.Context, transport mcp.Transport, connectionID string) (*mcp.ClientSession, context.CancelFunc, error) {
 	// The SSE GET must outlive discovery, while request cancellation still interrupts initialization.
 	sessionCtx, cancel := context.WithCancel(m.ctx)
 	stop := context.AfterFunc(ctx, cancel)
-	client := mcp.NewClient(&mcp.Implementation{Name: "mcp-platform-connector", Version: "0.1.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "mcp-platform-connector", Version: "0.1.0"}, m.clientOptions(connectionID))
 	session, err := client.Connect(sessionCtx, transport, nil)
 	detached := stop()
 	if err != nil {

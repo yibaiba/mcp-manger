@@ -3,10 +3,10 @@
 ## 三种授权
 
 - 平台登录：Better Auth cookie，`/api/v1/auth/*`；管理写操作需匹配 `Origin`。
-- 外部 Agent：`Authorization: Bearer <接入密钥或 OAuth access token>`；入口 `/mcp/:profileId`。每次列工具、调用和下载均重新检查当前授权及配置，撤销立即生效。
+- 外部 Agent：`Authorization: Bearer <接入密钥或 OAuth access token>`；入口 `/mcp/:profileId`。每次列目录、调用、读取和下载均重新检查当前授权及配置，撤销立即生效。
 - 上游 MCP：官方 SDK OAuth，凭证绑定用户与连接，加密持久化。Pi 连接由独立 Pi 进程管理 OAuth，彼此不互用 token。
 
-创建配置时明确选择工具、Skill 版本和可下载的产物 ID；未选择的工具不能调用。标识由连接 ID 和原始工具名派生，两个同名工具不会误路由。内部 Pi 直接调用同一 InvocationService，不通过网关 HTTP 回环；调用记录包括执行位置、连接、设备和状态，不记录完整参数或输出。
+创建配置时明确选择工具、Prompts/Resources/模板、Skill 版本和可下载的产物 ID；未选择的工具不能调用。标识由连接 ID 和原始工具名派生，两个同名工具不会误路由。内部 Pi 直接调用同一 InvocationService，不通过网关 HTTP 回环；调用记录包括执行位置、连接、设备和状态，不记录完整参数或输出。
 
 外部配置可在管理页生成（密钥仅显示一次）：
 
@@ -22,7 +22,21 @@
 }
 ```
 
-MCP SDK 使用 Streamable HTTP；初始化返回 `mcp-session-id`，后续请求携带会话 ID，DELETE 释放会话。工具调用返回原始 MCP content、isError 和 structuredContent；超时、取消或设备断线可能已执行，显示“结果未知”，不自动重放。工具服务自己可能有其协议重试行为，不能据此承诺跨任意供应商的 exactly-once。
+外部入口使用官方 SDK 2.3.1 双栈处理 Streamable HTTP：现代 2026-07-28 请求使用每次请求的协议元数据，无需旧会话初始化；旧客户端初始化返回 `mcp-session-id`，后续携带会话 ID，DELETE 释放会话。两种入口使用相同配置授权。工具调用保留 MCP content、isError、structuredContent、annotations、outputSchema 和 `_meta`；超时、取消或设备断线可能已执行，显示“结果未知”，不自动重放。工具服务自己可能有其协议重试行为，不能据此承诺跨任意供应商的 exactly-once。
+
+### 内容目录与通知
+
+`GET /catalog` 返回当前用户可用条目，含 `id/connectionId/kind/name/locator/definition`；kind 为 `prompt/resource/template`。管理侧 `POST /catalog/prompts/:id/get` 接收 `{arguments:{参数名:"字符串"}}`；`POST /catalog/resources/read` 接收 `{uri:"mcp-platform://连接UUID/上游URI"}`。例如 `file:///shared.txt` 对外表示为 `mcp-platform://连接UUID/file:///shared.txt`。URI 保留原始内容，按连接隔离；Prompt 对外名称使用稳定条目 ID。返回的资源链接和嵌入资源一并使用该命名空间。
+
+Agent 配置新增 `contentIds` 白名单；默认空列表，旧配置不会因此自动暴露新内容。资源模板授权覆盖匹配该模板的实际 URI，实际读取前后重新检查授权。目录分页全部读取，未广告对应能力的上游不发送该类请求。
+
+tools/prompts/resources 的 `list_changed` 触发目录刷新后，按配置授权转发下游；`resources/updated` 仅发送给有权访问且订阅该 URI 的客户端。旧协议使用 `resources/subscribe`、`resources/unsubscribe`，现代协议使用 `subscriptions/listen` 的 `resourceSubscriptions`；平台引用计数避免一个客户端退订影响其他客户端。停止连接会关闭使用其资源订阅的下游入口，重新连接后需重新订阅；清理不会重新创建已停止的上游。配置变更和凭证撤销立即关闭关联入口，并取消运行中的工具或 Pi 任务。进度通知沿原请求的 progressToken 关联转发。
+
+HTTP/stdio 上游使用 SDK 自动协商，SSE 固定旧协议；连接列表记录实际协议版本和上游 capabilities。stdio 自动协商可能由官方 SDK 启动一个短暂的独立探测子进程；探测不执行工具，但启动命令本身仍需适合重复启动。
+
+Schema 使用官方 AJV 按 `$schema` 选择 draft-07、2019-09、2020-12；无效 Schema 在发现阶段明确失败，输入不合法不派发调用，输出不合法明确报告且不重放。合法布尔子 Schema 在旧客户端目录中等价转换为 `{}` / `{not:{}}`，数据库与现代客户端保留原定义；不修改 enum/default 等数据字段。本次未实现可选的 MCP Tasks、Apps UI 或交互式输入能力，不广告未支持的能力。
+
+协议依据：[MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28)、[TypeScript SDK v2](https://ts.sdk.modelcontextprotocol.io/v2/)。
 
 ## 管理接口 `/api/v1`
 
@@ -32,7 +46,8 @@ MCP SDK 使用 Streamable HTTP；初始化返回 `mcp-session-id`，后续请求
 | 设备                    | `GET /devices`、`POST /devices/pairings`、`POST /devices/pair`、`DELETE /devices/:id`                                      |
 | 连接                    | `GET/POST /connections`、`POST /connections/:id/discover`、`POST /connections/:id/stop`                                    |
 | 工具                    | `GET /tools`、`POST /tools/:id/call`（`{arguments:{...}}`）                                                                |
-| Agent 配置              | `GET/POST /profiles`、`PUT /profiles/:id`（name/toolIds/skillVersionIds/artifactIds）                                      |
+| 内容目录                | `GET /catalog`、`POST /catalog/prompts/:id/get`、`POST /catalog/resources/read`                                            |
+| Agent 配置              | `GET/POST /profiles`、`PUT /profiles/:id`（name/toolIds/contentIds/skillVersionIds/artifactIds）                           |
 | 接入密钥                | `POST /profiles/:id/keys`、`GET /profiles/keys/all`、`DELETE /profiles/keys/:id`                                           |
 | 上游授权                | `GET /connections/:id/oauth`、`POST .../start`、`GET .../callback`、`POST .../complete`（redirectUrl）、`DELETE .../oauth` |
 | Agent OAuth             | `POST /oauth/register`、`GET /oauth/authorize`、`POST /oauth/consent`、`POST /oauth/token`、`POST /oauth/revoke`           |
@@ -92,6 +107,8 @@ Agent 使用原接入密钥或 OAuth token 对 **`GET /mcp/:profileId/artifacts/
 }
 ```
 
-method：discover/call/close/skill.install/artifact.send/artifact.receive。设备响应 `{v:1,type:"result",id,result}` 或 `{v:1,type:"result",id,error:{code,message}}`；取消消息 `{v:1,type:"cancel",id}`。设备 hello 含 os/hostname/version；每 15 秒 heartbeat 报告服务状态；通道掉线三秒后重连，仅恢复连接，不重放请求。服务端心跳失联中断 pending 请求，明确标记结果未知。
+method：discover/catalog/call/mcp.request/close/skill.install/artifact.send/artifact.receive。`catalog` 返回工具、Prompts、Resources、模板、协议版本和 capabilities；`mcp.request` 的 params.operation 为 `{method,params}`，支持 prompts/get、resources/read、resources/subscribe、resources/unsubscribe。设备响应 `{v:1,type:"result",id,result}` 或 `{v:1,type:"result",id,error:{code,message}}`；取消消息 `{v:1,type:"cancel",id}`。设备 hello 含 os/hostname/version；每 15 秒 heartbeat 报告服务状态；通道掉线三秒后重连，仅恢复连接，不重放请求。服务端心跳失联中断 pending 请求，明确标记结果未知。
 
 协议源码：`packages/contracts/src/index.ts`、`connector/internal/agent/protocol.go`。自动化契约测试覆盖封包、真 WebSocket、两进程路由、取消和断线。
+
+设备通知封包为 `{v:1,type:"notification",connectionId,method,params,requestId?}`，支持三类 list_changed、resources/updated 和 progress；进度的 requestId 必须关联同一 WebSocket 的 pending 请求。换代设备连接发来的旧消息不处理。设备断线后订阅随上游会话结束，客户端应在重连后重新订阅；不重放已派发的工具请求。

@@ -4,17 +4,16 @@ import {
   auth,
   type OAuthClientProvider,
   type OAuthDiscoveryState,
-} from '@modelcontextprotocol/sdk/client/auth.js';
-import type {
-  OAuthClientInformationMixed,
-  OAuthTokens,
-} from '@modelcontextprotocol/sdk/shared/auth.js';
+  type StoredOAuthClientInformation,
+  type StoredOAuthTokens,
+  type OAuthClientInformationContext,
+} from '@modelcontextprotocol/client';
 import { secretToken, type Vault } from '../../shared/crypto.js';
 import { AppError } from '../../shared/errors.js';
 import type { ConnectionContext } from '../mcp/adapter.js';
 interface Credentials {
-  client?: OAuthClientInformationMixed;
-  tokens?: OAuthTokens;
+  client?: StoredOAuthClientInformation;
+  tokens?: StoredOAuthTokens;
   verifier?: string;
   state?: string;
   expiresAt?: number;
@@ -159,19 +158,33 @@ class PersistedProvider implements OAuthClientProvider {
     await this.update({ state, expiresAt: Date.now() + 10 * 60_000 });
     return state;
   }
-  async clientInformation() {
+  async clientInformation(context?: OAuthClientInformationContext) {
     const config = this.context.config.oauth;
-    if (config?.clientId) return { client_id: config.clientId, client_secret: config.clientSecret };
-    return (await this.read()).client;
+    const stored = (await this.read()).client;
+    if (!config?.clientId) return stored;
+    const client = {
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      issuer: stored?.issuer,
+    };
+    if (!client.issuer && context) {
+      const stamped = { ...client, issuer: context.issuer };
+      await this.update({ client: stamped });
+      return stamped;
+    }
+    return client;
   }
-  saveClientInformation(client: OAuthClientInformationMixed) {
-    return this.update({ client });
+  saveClientInformation(
+    client: StoredOAuthClientInformation,
+    context?: OAuthClientInformationContext,
+  ) {
+    return this.update({ client: { ...client, issuer: client.issuer ?? context?.issuer } });
   }
   async tokens() {
     return (await this.read()).tokens;
   }
-  saveTokens(tokens: OAuthTokens) {
-    return this.update({ tokens });
+  saveTokens(tokens: StoredOAuthTokens, context?: OAuthClientInformationContext) {
+    return this.update({ tokens: { ...tokens, issuer: tokens.issuer ?? context?.issuer } });
   }
   redirectToAuthorization(url: URL) {
     return this.update({ url: url.toString() });

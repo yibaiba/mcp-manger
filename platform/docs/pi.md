@@ -16,8 +16,12 @@ Pi 桥接支持 Streamable HTTP、旧版 HTTP+SSE 和 stdio。远程地址可用
 
 两条执行路径：
 
-1. **MCP 桥接**：每个用户/连接独立子进程、Pi 目录和服务器名，由 pi-mcp-adapter 持有授权与执行。使用 SDK 的原始工具定义调用代理，不构造模型消息、不请求模型。禁用输出改写以保留 MCP content/structuredContent，网关照常记录调用和权限。
-2. **内置 Agent**：设置 `PI_MODEL_PROVIDER`、`PI_MODEL_ID` 和该供应商的环境凭证；在任务页选择配置执行真实模型推理。只注入该配置的 MCP 工具及 Skill 版本，不继承主机的全局扩展、Skills 或内置 shell 工具。Skill 的 SKILL.md 通过 Pi loader 加载并注入任务指令；辅助文件会落盘，但不会额外授权任意宿主机文件访问或脚本执行。
+1. **MCP 桥接**：每个用户/连接独立子进程、Pi 目录和服务器名，由 pi-mcp-adapter 持有授权与执行。通过适配器持有的官方 MCP Client 执行程序化请求，不构造模型消息、不请求模型。完整发现工具、Prompts、Resources 和模板；转发通知、进度与原始元数据，网关照常校验权限。工具使用单次底层请求，避免高层 helper 的恢复重放。
+2. **内置 Agent**：设置 `PI_MODEL_PROVIDER`、`PI_MODEL_ID` 和该供应商的环境凭证；在任务页选择配置执行真实模型推理。只注入该配置的 MCP 工具、目录/Prompt/Resource 访问工具及 Skill 版本，不继承主机的全局扩展、Skills 或内置 shell 工具。Skill 的 SKILL.md 通过 Pi loader 加载并注入任务指令；辅助文件会落盘，但不会额外授权任意宿主机文件访问或脚本执行。
+
+`pi-mcp-adapter@7.0.0` 的公开代理原先只暴露工具。项目用 [pnpm 补丁](../patches/pi-mcp-adapter@7.0.0.patch) 增加 `getMcpClient({pi, name})`，仅返回同一扩展实例中已经连接的官方 Client；授权、传输与生命周期仍由 Pi 管理。补丁由 `pnpm-workspace.yaml` 和锁文件锁定，普通 frozen install 自动应用，不需要用户手工安装或修改依赖。升级该适配器时须核对补丁并运行 `pnpm test`、`pnpm test:pi`。
+
+内置 Agent 的 `platform_mcp_catalog`、`platform_mcp_prompt`、`platform_mcp_resource` 直接使用平台 ContentService，按当前配置检查 `contentIds`；资源模板仅授权匹配 URI。权限变更会取消该配置正在运行的任务。它们不经 HTTP 网关，不形成回环。
 
 Pi OAuth 使用 `encrypted-file` store；按 pi-mcp-adapter 文档生成 `PI_MCP_ADAPTER_OAUTH_FILE_KEY`，妥善备份（32 字节密钥的 base64 表示）。凭证目录保存在持久化 DATA_DIR 下，进程之间隔离。平台 SQL 加密密钥与 Pi 文件密钥职责不同。
 

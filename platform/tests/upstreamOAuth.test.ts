@@ -35,6 +35,12 @@ test('official SDK upstream OAuth callback, refresh, restart persistence and rev
     h.services.upstreamOAuth.complete(context, { code: 'test-code', state: 'wrong' }),
   ).rejects.toThrow('授权状态');
   await h.services.upstreamOAuth.complete(context, { code: 'test-code', state });
+  expect(await h.services.upstreamOAuth.provider(context).clientInformation()).toMatchObject({
+    issuer: upstream.origin,
+  });
+  expect(await h.services.upstreamOAuth.provider(context).tokens()).toMatchObject({
+    issuer: upstream.origin,
+  });
   expect((await h.services.connections.discover(account.ownerId, connection.id))[0]?.name).toBe(
     'echo',
   );

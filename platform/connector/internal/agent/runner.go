@@ -8,6 +8,7 @@ import (
 	"github.com/coder/websocket"
 	"log"
 	"mcplatform/connector/internal/config"
+	"mcplatform/connector/internal/mcpclient"
 	"net/http"
 	"os"
 	"runtime"
@@ -72,6 +73,17 @@ func (r *Runner) session(parent context.Context) error {
 	}
 	if err = r.send(ctx, conn, map[string]any{"v": 1, "type": "hello", "os": runtime.GOOS, "version": Version, "hostname": hostname}); err != nil {
 		return err
+	}
+	if handler, ok := r.Handler.(interface {
+		SetNotifier(func(mcpclient.Notification))
+	}); ok {
+		handler.SetNotifier(func(event mcpclient.Notification) {
+			if err := r.send(ctx, conn, event); err != nil {
+				r.Logger.Printf("MCP notification delivery failed: %v", err)
+				conn.CloseNow()
+			}
+		})
+		defer handler.SetNotifier(nil)
 	}
 	go r.heartbeat(ctx, conn)
 	return r.read(ctx, conn)

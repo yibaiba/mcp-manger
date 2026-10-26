@@ -1,0 +1,33 @@
+diff --git a/index.ts b/index.ts
+index 0607163b14aeef959c49552c532b69a774253272..04d1e943376dc731e5cfd674869c1c382e8d5a0c 100644
+--- a/index.ts
++++ b/index.ts
+@@ -1,4 +1,14 @@
+ import { registerProtocolBridge } from "./runtime-protocol.ts";
++import type { Client } from "@modelcontextprotocol/client";
++
++const platformClientAccess = new WeakMap<ExtensionAPI, (name: string) => Client>();
++
++/** Embedding API: borrow the live client; Pi retains credentials and lifecycle ownership. */
++export function getMcpClient(options: { pi: ExtensionAPI; name: string }): Client {
++  const access = platformClientAccess.get(options.pi);
++  if (!access) throw new Error("MCP adapter is not installed for this Pi instance");
++  return access(options.name);
++}
+ export { registerMcpProtocol, MCP_PROTOCOL_EVENT, type McpProtocolDefinition, type McpProtocol, type McpProtocolSession, type McpProtocolStream, type McpProtocolWatch, type McpProtocolEnd } from "./runtime-protocol.ts";
+ import { withFileMutationQueue, type AgentToolResult, type AgentToolUpdateCallback, type ExtensionAPI, type ExtensionContext, type ExtensionToolContext, type RegisteredMcpServer, type ToolInfo } from "@earendil-works/pi-coding-agent";
+ import { resolve } from "node:path";
+@@ -262,6 +272,13 @@ function installMcpAdapter(pi: ExtensionAPI, options: McpAdapterOptions) {
+   // Before the first config load, so every load in this process agrees.
+   if (!programmaticConfig) setPiMcpConfigEnabled(piSupportsMcp(pi));
+   let state: McpExtensionState | null = null;
++  platformClientAccess.set(pi, (name) => {
++    const connection = state?.manager.getConnection(name);
++    if (!connection || connection.status !== "connected") {
++      throw new Error(`MCP connection ${name} is not connected`);
++    }
++    return connection.client;
++  });
+   let sessionCtx: ExtensionContext | null = null;
+   let initPromise: Promise<McpExtensionState> | null = null;
+   let initStartedPromise: Promise<void> | null = null;

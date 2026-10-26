@@ -9,6 +9,7 @@ import { AppError } from './shared/errors.js';
 import { bearer, owner, paramId, type ApiEnv } from './shared/http.js';
 import { deviceRoutes } from './modules/devices/routes.js';
 import { connectionRoutes, toolRoutes } from './modules/mcp/routes.js';
+import { contentRoutes } from './modules/mcp/contentRoutes.js';
 import { profileRoutes } from './modules/agent-profiles/routes.js';
 import { authorizationRoutes } from './modules/authorizations/routes.js';
 import { skillRoutes } from './modules/skills/routes.js';
@@ -111,6 +112,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     authorizationRoutes({ connections: s.connections, oauth: s.upstreamOAuth, pi: s.pi }),
   );
   app.route('/api/v1/tools', toolRoutes(s.profiles, s.invocations));
+  app.route('/api/v1/catalog', contentRoutes(s.content));
   app.route('/api/v1/profiles', profileRoutes({ ...s, publicUrl: config.PUBLIC_URL }));
   app.route('/api/v1/skills', skillRoutes(s.skills, importGit));
   app.route('/api/v1/artifacts', artifactRoutes(s.artifacts));

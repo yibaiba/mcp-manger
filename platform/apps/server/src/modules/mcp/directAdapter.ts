@@ -1,11 +1,20 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { CallToolResultSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
+import {
+  Client,
+  StreamableHTTPClientTransport,
+  SSEClientTransport,
+  StdioClientTransport,
+  discoverCatalog,
+  executeOperation,
+  executeTool,
+  observeNotifications,
+  McpValidationError,
+  type McpNotification,
+  type McpCatalog,
+} from '@platform/mcp';
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { AppError, errorMessage } from '../../shared/errors.js';
 import { CALL_TIMEOUT_MS, type ConnectionInput } from '@platform/contracts';
-import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import type { OAuthClientProvider } from '@platform/mcp';
 import type { ConnectionAdapter, ConnectionContext } from './adapter.js';
 import { observeStdioStderr } from './stdioDiagnostics.js';
 import { redactConnectionText } from './connectionDiagnostics.js';
@@ -34,9 +43,16 @@ function createSession(input: {
   effects: DirectEffects;
   signal: AbortSignal;
   onClose: () => void;
+  notify: (event: McpNotification) => void;
 }) {
   const { config } = input.context;
-  const client = new Client({ name: 'mcp-platform', version: '0.1.0' });
+  const client = new Client(
+    { name: 'mcp-platform', version: '0.1.0' },
+    {
+      versionNegotiation: { mode: config.transport === 'sse' ? 'legacy' : 'auto' },
+      inputRequired: { autoFulfill: false },
+    },
+  );
   const transport = createTransport(config, input.authProvider);
   const diagnose =
     transport instanceof StdioClientTransport && transport.stderr
@@ -55,6 +71,16 @@ function createSession(input: {
     .then(() => {
       input.signal.throwIfAborted();
       active = true;
+      observeNotifications(client, input.notify);
+      if (client.getProtocolEra() === 'modern') {
+        const capabilities = client.getServerCapabilities();
+        const filter = {
+          toolsListChanged: capabilities?.tools?.listChanged,
+          promptsListChanged: capabilities?.prompts?.listChanged,
+          resourcesListChanged: capabilities?.resources?.listChanged,
+        };
+        if (Object.values(filter).some(Boolean)) return client.listen(filter).then(() => undefined);
+      }
     })
     .catch((error: unknown) => {
       throw diagnose(error);
@@ -69,6 +95,8 @@ export function createDirectAdapter(
 ): ConnectionAdapter {
   const lifetime = new AbortController();
   let session: DirectSession | undefined;
+  let catalog: McpCatalog | undefined;
+  const listeners = new Set<(event: McpNotification) => void>();
   function acquire() {
     lifetime.signal.throwIfAborted();
     if (session) return session;
@@ -77,6 +105,9 @@ export function createDirectAdapter(
       authProvider,
       effects,
       signal: lifetime.signal,
+      notify: (event) => {
+        for (const listener of listeners) listener(event);
+      },
       onClose: () => {
         if (session === created) session = undefined;
       },
@@ -86,37 +117,38 @@ export function createDirectAdapter(
   }
   return {
     status: () => (session?.active() ? 'connected' : 'disconnected'),
-    async discover(signal) {
+    watch(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    async catalog(signal) {
       signal?.throwIfAborted();
       const current = acquire();
       await awaitConnection(current.ready, signal);
       signal?.throwIfAborted();
-      const tools: Tool[] = [];
-      let cursor: string | undefined;
-      do {
-        const page = await current.client.listTools(
-          { cursor },
-          { signal, timeout: CALL_TIMEOUT_MS },
-        );
-        tools.push(...page.tools);
-        cursor = page.nextCursor;
-      } while (cursor);
-      return tools;
+      catalog = await discoverCatalog(current.client, signal);
+      return catalog;
+    },
+    async discover(signal) {
+      return (await this.catalog(signal)).tools;
+    },
+    async request(operation, options) {
+      const current = acquire();
+      await awaitConnection(current.ready, options?.signal);
+      return executeOperation(current.client, operation, options);
     },
     async call(input) {
       input.signal?.throwIfAborted();
       const current = acquire();
       await awaitConnection(current.ready, input.signal);
       input.signal?.throwIfAborted();
+      const tool = catalog?.tools.find((tool) => tool.name === input.name);
+      if (!tool) throw new AppError('TOOL_NOT_DISCOVERED', '请先刷新工具目录', 409);
       try {
-        return CallToolResultSchema.parse(
-          await current.client.callTool(
-            { name: input.name, arguments: input.arguments },
-            CallToolResultSchema,
-            { signal: input.signal, timeout: CALL_TIMEOUT_MS },
-          ),
-        );
+        return CallToolResultSchema.parse(await executeTool(current.client, { ...input, tool }));
       } catch (error) {
+        if (error instanceof McpValidationError)
+          throw new AppError('SCHEMA_VALIDATION', error.message, 422);
         throw new AppError(
           'RESULT_UNKNOWN',
           `上游请求发出后失败，执行结果需确认：${errorMessage(current.diagnose(error))}`,
@@ -128,6 +160,7 @@ export function createDirectAdapter(
       lifetime.abort(new Error('连接已关闭'));
       const current = session;
       session = undefined;
+      listeners.clear();
       await current?.client.close();
     },
   };

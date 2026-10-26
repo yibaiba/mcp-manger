@@ -3,10 +3,12 @@ import { owner, paramId, type ApiEnv } from '../../shared/http.js';
 import type { ProfileService } from './profileService.js';
 import type { InvocationService } from '../mcp/invocationService.js';
 import type { Gateway } from '../mcp/gateway.js';
+import type { PiService } from '../pi-runtime/piService.js';
 export function profileRoutes(deps: {
   profiles: ProfileService;
   invocations: InvocationService;
   gateway: Gateway;
+  pi: PiService;
   publicUrl: string;
 }) {
   const app = new Hono<ApiEnv>();
@@ -14,7 +16,8 @@ export function profileRoutes(deps: {
   app.post('/', async (c) => c.json(await deps.profiles.save(owner(c), await c.req.json()), 201));
   app.put('/:id', async (c) => {
     const profile = await deps.profiles.save(owner(c), await c.req.json(), paramId(c));
-    deps.invocations.revoke({ profileId: paramId(c) });
+    await deps.gateway.profileChanged(paramId(c));
+    await deps.pi.revokeProfile(paramId(c));
     return c.json(profile);
   });
   app.post('/:id/keys', async (c) => {

@@ -8,11 +8,10 @@ import type { ConnectionAdapter, ConnectionContext } from '../mcp/adapter.js';
 import type { ProfileService } from '../agent-profiles/profileService.js';
 import type { InvocationService } from '../mcp/invocationService.js';
 import type { SkillService } from '../skills/skillService.js';
-import {
-  CallToolResultSchema,
-  ListToolsResultSchema,
-  type Tool,
-} from '@modelcontextprotocol/sdk/types.js';
+import type { ContentService } from '../mcp/contentService.js';
+import { contentToolset } from './contentTools.js';
+import { parseCatalog, type McpRequestOptions, type McpOperation } from '@platform/mcp';
+import { CallToolResultSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
 export interface PiBridge extends ConnectionAdapter {
   action(input: Record<string, unknown>): Promise<unknown>;
 }
@@ -31,6 +30,7 @@ export class PiService {
       profiles: ProfileService;
       invocations: InvocationService;
       skills: SkillService;
+      content: ContentService;
     },
   ) {}
   private load() {
@@ -48,7 +48,11 @@ export class PiService {
         return {
           status: () => adapter.status(),
           discover: async (signal?: AbortSignal) =>
-            ListToolsResultSchema.parse({ tools: await adapter.discover(signal) }).tools,
+            parseCatalog(await adapter.catalog(signal)).tools,
+          catalog: async (signal?: AbortSignal) => parseCatalog(await adapter.catalog(signal)),
+          request: (operation: McpOperation, options?: McpRequestOptions) =>
+            adapter.request(operation, options),
+          watch: adapter.watch,
           call: async (input: Parameters<ConnectionAdapter['call']>[0]) =>
             CallToolResultSchema.parse(await adapter.call(input)),
           action: (input: Record<string, unknown>) => adapter.action(input),
@@ -99,6 +103,10 @@ export class PiService {
     try {
       const profile = await this.deps.profiles.owned(ownerId, input.profileId);
       const catalog = await this.deps.profiles.catalog(ownerId, input.profileId);
+      const content = await contentToolset(this.deps.content, {
+        ownerId,
+        profileId: input.profileId,
+      });
       const skills = await Promise.all(
         profile.skillVersionIds.map((version) => this.deps.skills.version(ownerId, version)),
       );
@@ -108,19 +116,24 @@ export class PiService {
         provider: this.deps.config.PI_MODEL_PROVIDER!,
         model: this.deps.config.PI_MODEL_ID!,
         prompt: input.prompt,
-        tools: catalog.map(
-          (t) => ({ ...t.definition, name: t.id, inputSchema: t.definition.inputSchema }) as Tool,
-        ),
+        tools: [
+          ...content.tools,
+          ...catalog.map(
+            (t) => ({ ...t.definition, name: t.id, inputSchema: t.definition.inputSchema }) as Tool,
+          ),
+        ],
         skills,
         signal: input.abort.signal,
         call: (name, args, signal) =>
-          this.deps.invocations.call({
-            ownerId,
-            profileId: input.profileId,
-            toolId: name,
-            arguments: args,
-            signal,
-          }),
+          content.handles(name)
+            ? content.call(name, args, signal)
+            : this.deps.invocations.call({
+                ownerId,
+                profileId: input.profileId,
+                toolId: name,
+                arguments: args,
+                signal,
+              }),
         onText: (text) => {
           output += text;
         },
