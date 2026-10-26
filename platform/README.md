@@ -42,6 +42,9 @@ pnpm dev
 - 14 种客户端配置导出、适用的 CLI 命令、上游服务说明与配置说明透传。
 - OpenAPI 3.0/3.1 JSON/YAML 导入、操作预览、参数/认证组合、文件产物流转和真实 HTTP 执行。
 - Form/URL Elicitation、新旧协议转换；外部 Apps 转发和工具页/Pi 任务页的官方 AppBridge 宿主。浏览器及供应商验收状态单独记录。
+- Agent 工作空间：逐连接选择身份与执行设备，独立 OAuth/固定凭证/stdio 凭证变量，以当前 Agent 权限发现和测试。
+- 用户审批的临时权限：可申请目录、子集审批、凭证或任务作用域、到期与撤销；审批不执行业务调用，Pi 更新工具集后发起新调用。
+- 持久任务快照、输出检查点和调用诊断；用户选定摘要与产物的交接，保存与执行分离，重复执行不创建第二个任务。
 
 实现与实机验收不是同一件事。Windows、桌面软件、供应商 OAuth、Claude Code 加载 Skill 和真实模型任务的验收状态见 [验证记录](docs/verification.md)。
 
@@ -51,7 +54,7 @@ pnpm dev
 pnpm check-types
 pnpm lint
 pnpm build
-pnpm test                   # 使用真实 PostgreSQL；五组顺序执行，每个进程硬超时 60 秒
+pnpm test                   # 使用真实 PostgreSQL；六组顺序执行，每个进程硬超时 60 秒
 cd connector
 go test -timeout 60s ./...
 go vet ./...
@@ -69,6 +72,7 @@ pnpm test:pi                # 真实 Pi SDK 桥接；不调用模型，硬超时
 - [接口、权限与协议](docs/api.md)
 - [内置 Pi 配置与验收](docs/pi.md)
 - [验证记录和待验收项](docs/verification.md)
+- [Agent 工作空间实施与验收](docs/workspace-verification.md)
 - [MCPHub 参考与迁移记录](docs/mcphub-reference.md)
 - [身份、生命周期、OpenAPI、交互与 Apps](docs/capabilities.md)
 - [客户端配置格式与核对来源](docs/client-configurations.md)

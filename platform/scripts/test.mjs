@@ -35,6 +35,8 @@ const groups = requested.length
   : [
       [
         '--exclude',
+        'tests/workspace*.test.ts',
+        '--exclude',
         'tests/pi.test.ts',
         '--exclude',
         'tests/catalog*.test.ts',
@@ -52,6 +54,11 @@ const groups = requested.length
         'tests/lifecycle.test.ts',
         '--exclude',
         'tests/upstreamOAuth.test.ts',
+      ],
+      [
+        'tests/workspacePermissions.test.ts',
+        'tests/workspaceIdentity.test.ts',
+        'tests/workspaceHandoffs.test.ts',
       ],
       ['tests/pi.test.ts'],
       ['tests/upstreamOAuth.test.ts'],

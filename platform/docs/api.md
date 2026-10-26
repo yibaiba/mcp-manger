@@ -117,3 +117,27 @@ method：discover/catalog/call/mcp.request/check/interaction.cancel/close/oauth.
 协议源码：`packages/contracts/src/index.ts`、`connector/internal/agent/protocol.go`。自动化契约测试覆盖封包、真 WebSocket、两进程路由、取消和断线。
 
 设备通知封包为 `{v:1,type:"notification",connectionId,method,params,requestId?}`，支持三类 list_changed、resources/updated 和 progress；进度的 requestId 必须关联同一 WebSocket 的 pending 请求。换代设备连接发来的旧消息不处理。设备断线后订阅随上游会话结束，客户端应在重连后重新订阅；不重放已派发的工具请求。
+
+## Agent 工作空间、临时权限与交接
+
+Profile 新增 `revision`、`requestable:{toolIds,contentIds,artifactIds}` 与 `connectionIdentities:{连接ID:"inherit"|"profile"|"credential"}`。更新携带当前 revision，冲突返回 `REVISION_CONFLICT`；旧请求省略新增字段时保留原值。`requestable` 只允许列申请目录及提交申请，不允许执行。Skill 版本仍使用长期授权。
+
+`inherit` 沿用连接原有身份策略；`profile` 使用稳定 Profile 身份；`credential` 按接入密钥、OAuth grant 或 Pi 身份隔离。上游身份共享不等于运行会话共享。固定凭证只能保存到加密绑定，不能写入 Profile 或导出配置；独立身份缺少凭证时明确报错，不回落共享身份。连接的 `credentialHeaders`/`credentialEnv` 声明可按绑定覆盖的 HTTP 身份请求头或 stdio 凭证变量；OpenAPI 凭证按安全方案配置。保存固定凭证时携带绑定 revision。
+
+| 功能                    | 方法与路径（均为 `/api/v1` 下）                                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 工作空间与影响预览      | `GET /profiles/:id`、`GET /profiles/:id/impact`                                                                               |
+| 以 Agent 身份检查       | `GET /profiles/:id/agent/catalog`；`GET /profiles/:id/agent/connections/:connectionId`；`POST .../discover`、`POST .../check` |
+| 以 Agent 身份调用与读取 | `POST /profiles/:id/agent/tools/:toolId/call`、`POST .../prompts/:entryId/get`、`POST .../resources/read`                     |
+| 绑定固定凭证与影响      | `PUT /connections/:id/bindings/:bindingId/credentials`、`GET .../impact`                                                      |
+| 审批与临时授权          | `GET /permission-requests`、`POST /permission-requests/:id/decide`、`GET /temporary-grants`、`DELETE /temporary-grants/:id`   |
+| 持久任务与调用          | `GET /tasks/:id`、`GET /calls/:id`、`GET /workspace/events/:id`                                                               |
+| 交接                    | `POST /handoffs/preview`、`GET/POST /handoffs`、`GET /handoffs/:id`、`GET .../export`、`POST .../execute`                     |
+
+管理权限与 Agent 权限分别使用；带 Agent 路径的操作执行该 Profile 的实际权限，调用方不能通过 body 注入执行上下文。任务详情先返回持久快照，再用事件流触发重新读取；revision 单调递增，旧事件不会覆盖新状态。`GET /calls` 可按 profileId/taskId/connectionId/deviceId/status 筛选。诊断记录只保存标识、阶段与必要错误信息，不保存认证秘密。
+
+开放 requestable 后，MCP 与 Pi 提供平台申请目录、申请及状态工具。申请绑定服务端确定的凭证或当前 Pi 任务；审批只能批准申请子集，默认有效期一小时，可显式调整。事务同时提交决定、授权和审计，重复审批不增加授权或延长时间。Pi 等待审批不占业务调用的网络超时，无隐式审批等待上限；任务取消、身份变化和凭证撤销会终止等待。批准只刷新可用工具并返回决定，业务必须由新调用执行。目录、调用、内容、订阅、Apps、交互续传及产物下载共同使用当前有效授权；长期授权仍有效时不因撤销临时授权而取消活动。
+
+交接输入由用户选择 sourceTaskId、targetProfileId、targetRevision、summary、artifactIds、mode（pi/external），外部模式还需目标 Profile 的有效 credentialId。创建携带 idempotencyKey；预览不是授权凭证，保存和执行均重新核对内容来源、目标修订和权限。保存与执行分离，执行事务预留唯一任务；重复请求返回同一结果，失败保留状态，不自动重试。导出不调用模型，不含平台密钥、公开下载令牌、原始会话或 Apps 状态。外部产物入口仍需选定凭证鉴权；Pi 新任务通过 `platform_artifacts_catalog/read` 在当前任务权限内读取指定字节区间。
+
+仅单进程维护运行调用、订阅与 Apps。撤销会结束依赖失效授权的活动，不能保证撤回已派发操作；未知结果明确记录，不宣称回滚或自动重放。

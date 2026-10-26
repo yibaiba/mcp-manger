@@ -1,3 +1,5 @@
+import { workspaceRoutes } from './modules/workspace/routes.js';
+import { withExecution } from './modules/mcp/executionContext.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { z, ZodError } from 'zod';
@@ -72,10 +74,21 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
   app.get('/mcp/:profileId/artifacts/:id', async (c) => {
     const profileId = paramId(c, 'profileId');
     const principal = await s.profiles.authenticate(profileId, bearer(c.req.raw.headers));
-    const profile = await s.profiles.owned(principal.ownerId, profileId);
-    if (!profile.artifactIds.includes(paramId(c)))
-      throw new AppError('FORBIDDEN', '当前 Agent 配置未授权此产物', 403);
-    return s.artifacts.download(principal.ownerId, paramId(c));
+    return withExecution(
+      {
+        ownerId: principal.ownerId,
+        profileId,
+        identity: principal.credentialId,
+        credentialId: principal.credentialId,
+        entry: 'gateway',
+        sessionId: 'download',
+        capabilities: {},
+      },
+      async () => {
+        await s.access.assert(principal, 'artifactIds', paramId(c));
+        return s.artifacts.download(principal.ownerId, paramId(c));
+      },
+    );
   });
   app.all('/mcp/:profileId', async (c) => {
     const profileId = paramId(c, 'profileId');
@@ -109,14 +122,30 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     c.json({ userId: owner(c), piEnabled: config.PI_ENABLED === 'true' }),
   );
   app.route('/api/v1/devices', deviceRoutes(s.devices));
-  app.route('/api/v1/connections', connectionRoutes(s.connections));
   app.route(
     '/api/v1/connections',
-    authorizationRoutes({ connections: s.connections, oauth: s.upstreamOAuth, pi: s.pi }),
+    connectionRoutes(s.connections, () => s.access.changed()),
   );
   app.route(
     '/api/v1/connections',
-    authorizationRoutes({ connections: s.connections, oauth: s.upstreamOAuth, pi: s.pi }, true),
+    authorizationRoutes({
+      connections: s.connections,
+      oauth: s.upstreamOAuth,
+      pi: s.pi,
+      changed: () => s.access.changed(),
+    }),
+  );
+  app.route(
+    '/api/v1/connections',
+    authorizationRoutes(
+      {
+        connections: s.connections,
+        oauth: s.upstreamOAuth,
+        pi: s.pi,
+        changed: () => s.access.changed(),
+      },
+      true,
+    ),
   );
   app.route('/api/v1/tools', toolRoutes(s.profiles, s.invocations));
   app.route('/api/v1/catalog', contentRoutes(s.content));
@@ -127,6 +156,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
   app.route('/api/v1/interactions', interactionRoutes(s.interactions));
   app.route('/api/v1/apps', appRoutes(s.apps));
   registerManagement(app, deps);
+  app.route('/api/v1', workspaceRoutes({ db, services: s }));
   return app;
 }
 function registerManagement(
@@ -145,7 +175,15 @@ function registerManagement(
       await db
         .select()
         .from(calls)
-        .where(eq(calls.ownerId, owner(c)))
+        .where(
+          and(
+            eq(calls.ownerId, owner(c)),
+            ...(['profileId', 'taskId', 'connectionId', 'deviceId'] as const).map((key) =>
+              c.req.query(key) ? eq(calls[key], z.uuid().parse(c.req.query(key))) : undefined,
+            ),
+            c.req.query('status') ? eq(calls.status, c.req.query('status')!) : undefined,
+          ),
+        )
         .orderBy(desc(calls.startedAt))
         .limit(z.coerce.number().int().positive().default(100).parse(c.req.query('limit'))),
     ),
@@ -196,6 +234,7 @@ function registerManagement(
       .update(oauthGrants)
       .set({ revoked: true })
       .where(and(eq(oauthGrants.id, paramId(c)), eq(oauthGrants.ownerId, owner(c))));
+    await s.access.changed();
     await s.gateway.revoke(paramId(c));
     return c.json({ revoked: true });
   });
@@ -260,6 +299,7 @@ function registerAgentOAuth(
       .object({ token: z.string().min(1) })
       .parse(Object.fromEntries(new URLSearchParams(await c.req.text())));
     for (const id of await s.agentOAuth.revoke(input.token)) await s.gateway.revoke(id);
+    await s.access.changed();
     return c.body(null, 200);
   });
 }
