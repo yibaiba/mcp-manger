@@ -9,16 +9,19 @@ import { Disclosure } from '../../components/shared/Disclosure.js';
 export function AuthorizationBindings({
   connectionId,
   source,
+  initialBindingId,
 }: {
   connectionId: string;
   source: string;
+  initialBindingId?: string;
 }) {
   const bindings = useQuery({
     queryKey: ['bindings', connectionId],
     queryFn: () => api<{ id: string; identity: string }[]>(`/connections/${connectionId}/bindings`),
   });
-  const [selected, setSelected] = useState('default');
+  const [selected, setSelected] = useState(initialBindingId ?? 'default');
   const [scheme, setScheme] = useState('');
+  const [impact, setImpact] = useState<unknown>();
   const [result, setResult] = useState<unknown>();
   const root = `/connections/${connectionId}${selected === 'default' ? '' : `/bindings/${selected}`}`;
   const endpoint =
@@ -51,7 +54,22 @@ export function AuthorizationBindings({
         <Action action={async () => setResult(await api(`${endpoint}/start`, { method: 'POST' }))}>
           发起授权
         </Action>
-        <Action danger action={async () => setResult(await api(endpoint, { method: 'DELETE' }))}>
+        <Action
+          action={async () => {
+            if (selected === 'default') throw new Error('请选择具体绑定');
+            setImpact(await api(`${root}/impact`));
+          }}
+        >
+          查看撤销影响
+        </Action>
+        <Action
+          danger
+          action={async () => {
+            if (!impact) throw new Error('请先查看此绑定的撤销影响');
+            setResult(await api(endpoint, { method: 'DELETE' }));
+            setImpact(undefined);
+          }}
+        >
           撤销此绑定的本地凭证
         </Action>
       </div>
@@ -72,6 +90,7 @@ export function AuthorizationBindings({
           </Field>
         </Form>
       ) : null}
+      {impact ? <Code value={impact} /> : null}
       {result ? <Code value={result} /> : null}
     </Disclosure>
   );

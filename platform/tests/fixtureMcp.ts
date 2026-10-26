@@ -4,12 +4,17 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 export async function fixtureMcp(
-  options: { beforeList?: () => Promise<void>; instructions?: string } = {},
+  options: {
+    beforeList?: () => Promise<void>;
+    instructions?: string;
+    onRequest?: (request: Request) => void;
+  } = {},
 ) {
   const app = new Hono();
   const sessions = new Set<Server>();
   let count = 0;
   app.all('/mcp', async (c) => {
+    options.onRequest?.(c.req.raw);
     const server = createFixtureMcpServer(() => count++, options);
     sessions.add(server);
     server.onclose = () => sessions.delete(server);

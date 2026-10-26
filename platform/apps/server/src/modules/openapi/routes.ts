@@ -5,8 +5,14 @@ import type { Services } from '../../services.js';
 import { previewOpenApi } from './importService.js';
 import { withExecution } from '../mcp/executionContext.js';
 import { AppError } from '../../shared/errors.js';
+import type { ConnectionContext } from '../mcp/adapter.js';
 export function openApiRoutes(services: Services) {
   const app = new Hono<ApiEnv>();
+  async function identityChanged(context: ConnectionContext) {
+    await services.connections.closeBinding(context);
+    await services.connections.bindings.invalidate(context);
+    await services.access.changed();
+  }
   app.post('/openapi/preview', async (c) =>
     c.json(
       await previewOpenApi({
@@ -26,6 +32,8 @@ export function openApiRoutes(services: Services) {
     await withExecution(
       {
         identity: binding.identity,
+        ownerId: owner(c),
+        bindingIdentity: binding.identity,
         entry: 'dashboard',
         sessionId: 'authorization',
         capabilities: {},
@@ -48,34 +56,38 @@ export function openApiRoutes(services: Services) {
     app.delete(prefix, async (c) => {
       const context = await services.connections.context(owner(c), paramId(c));
       await services.connections.closeBinding(context);
+      const result = await services.apiOAuth.revoke(
+        context,
+        z.string().min(1).parse(c.req.param('scheme')),
+      );
+      await services.connections.bindings.invalidate(context);
+      await services.access.changed();
+      return c.json(result);
+    });
+    app.post(`${prefix}/start`, async (c) => {
+      const context = await services.connections.context(owner(c), paramId(c));
+      await identityChanged(context);
       return c.json(
-        await services.apiOAuth.revoke(context, z.string().min(1).parse(c.req.param('scheme'))),
+        await services.apiOAuth.start(context, z.string().min(1).parse(c.req.param('scheme'))),
       );
     });
-    app.post(`${prefix}/start`, async (c) =>
-      c.json(
-        await services.apiOAuth.start(
-          await services.connections.context(owner(c), paramId(c)),
-          z.string().min(1).parse(c.req.param('scheme')),
-        ),
-      ),
-    );
-    app.get(`${prefix}/callback`, async (c) =>
-      c.json(
-        await services.apiOAuth.complete(
-          await services.connections.context(owner(c), paramId(c)),
-          z.string().min(1).parse(c.req.param('scheme')),
-          z
-            .object({
-              code: z.string().min(1),
-              state: z.string().min(1),
-              iss: z.string().optional(),
-            })
-            .transform((v) => ({ code: v.code, state: v.state, issuer: v.iss }))
-            .parse(c.req.query()),
-        ),
-      ),
-    );
+    app.get(`${prefix}/callback`, async (c) => {
+      const context = await services.connections.context(owner(c), paramId(c));
+      const result = await services.apiOAuth.complete(
+        context,
+        z.string().min(1).parse(c.req.param('scheme')),
+        z
+          .object({
+            code: z.string().min(1),
+            state: z.string().min(1),
+            iss: z.string().optional(),
+          })
+          .transform((v) => ({ code: v.code, state: v.state, issuer: v.iss }))
+          .parse(c.req.query()),
+      );
+      await identityChanged(context);
+      return c.json(result);
+    });
   }
   return app;
 }

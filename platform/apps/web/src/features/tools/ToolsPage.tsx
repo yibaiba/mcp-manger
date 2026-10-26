@@ -1,3 +1,6 @@
+import { SelectControl } from '../../components/shared/SelectControl.js';
+import { SelectItem } from '../../components/ui/select.js';
+import type { Profile } from '../../lib/api.js';
 import { lazy, Suspense } from 'react';
 import { InteractionPanel } from '../interactions/InteractionPanel.js';
 const AppHost = lazy(() =>
@@ -15,14 +18,26 @@ import { Code, Empty, Feedback, Field, Form, value } from '../../components/shar
 import { Button } from '../../components/ui/button.js';
 import { ContentCatalog } from './ContentCatalog.js';
 export default function ToolsPage() {
-  const tools = useQuery({ queryKey: ['tools'], queryFn: () => api<Tool[]>('/tools') });
+  const [profileId, setProfileId] = useState(
+    new URLSearchParams(window.location.search).get('profileId') ?? '',
+  );
+  const profiles = useQuery({ queryKey: ['profiles'], queryFn: () => api<Profile[]>('/profiles') });
+  const root = profileId ? `/profiles/${profileId}/agent` : '';
+  const tools = useQuery({
+    queryKey: ['tools', profileId],
+    queryFn: async () =>
+      profileId ? (await api<{ tools: Tool[] }>(`${root}/catalog`)).tools : api<Tool[]>('/tools'),
+  });
   const connections = useQuery({
     queryKey: ['connections'],
     queryFn: () => api<Connection[]>('/connections'),
   });
   const [filter, setFilter] = useState('');
   const connectionNames = new Map(
-    connections.data?.map((connection) => [connection.id, connection.name]),
+    connections.data?.map((connection) => [
+      connection.id,
+      `${connection.name} · ${connection.deviceId ?? '平台主机'} · ${connection.adapter}`,
+    ]),
   );
   const [selected, setSelected] = useState<Tool>();
   const [result, setResult] = useState<unknown>();
@@ -44,6 +59,23 @@ export default function ToolsPage() {
         </div>
       </div>
       <Feedback error={tools.error ?? connections.error} />
+      <Field label="测试身份上下文">
+        <SelectControl
+          value={profileId}
+          onValueChange={(v) => {
+            setProfileId(v ?? '');
+            setSelected(undefined);
+            setResult(undefined);
+          }}
+        >
+          <SelectItem value="">管理账号（全部管理权限）</SelectItem>
+          {profiles.data?.map((p) => (
+            <SelectItem key={p.id} value={p.id}>
+              {p.name} · 实际 Agent 权限
+            </SelectItem>
+          ))}
+        </SelectControl>
+      </Field>
       <label className="search">
         <Search size={18} />
         <Input
@@ -92,7 +124,7 @@ export default function ToolsPage() {
                   controller.current = new AbortController();
                   try {
                     setResult(
-                      await api(`/tools/${selected.id}/call`, {
+                      await api(`${root}/tools/${selected.id}/call`, {
                         method: 'POST',
                         body: json({
                           arguments: JSON.parse(value(data, 'args')),
@@ -141,7 +173,7 @@ export default function ToolsPage() {
           )}
         </Card>
       </div>
-      <ContentCatalog connectionNames={connectionNames} />
+      <ContentCatalog key={profileId} connectionNames={connectionNames} profileId={profileId} />
     </>
   );
 }

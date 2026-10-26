@@ -3,6 +3,11 @@ import type { ConnectionAdapter, ConnectionContext } from './adapter.js';
 type AdapterOutcome = { adapter: ConnectionAdapter } | { error: unknown };
 export type ConnectionSlot = {
   readonly id: string;
+  readonly profileId?: string;
+  readonly context?: Pick<
+    ConnectionContext,
+    'id' | 'ownerId' | 'profileId' | 'bindingId' | 'sessionId' | 'identity'
+  > & { readonly deviceId?: string };
   readonly abort: AbortController;
   readonly ready?: Promise<AdapterOutcome>;
 };
@@ -24,6 +29,16 @@ export class ConnectionRuntime {
     if (current?.ready) return current;
     const slot: ConnectionSlot = {
       id: key,
+      profileId: context.profileId,
+      context: {
+        id: context.id,
+        ownerId: context.ownerId,
+        profileId: context.profileId,
+        bindingId: context.bindingId,
+        sessionId: context.sessionId,
+        identity: context.identity,
+        deviceId: context.config.deviceId,
+      },
       abort: new AbortController(),
       ready: this.sequence(key, () => this.factory(context, slot)).then<
         AdapterOutcome,
@@ -87,6 +102,16 @@ export class ConnectionRuntime {
     }
   }
 
+  keysForProfile(profileId: string) {
+    return [...this.slots.values()].filter((s) => s.profileId === profileId).map((s) => s.id);
+  }
+  sessions(ownerId: string) {
+    return [...this.slots.values()]
+      .filter(
+        (slot) => slot.ready && !slot.abort.signal.aborted && slot.context?.ownerId === ownerId,
+      )
+      .map((slot) => slot.context!);
+  }
   keys(connectionId: string) {
     return [...this.slots.keys()].filter(
       (key) =>

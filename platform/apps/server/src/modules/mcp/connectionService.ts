@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { connections, type Database } from '@platform/db';
+import { connections, profiles, catalogSnapshots, type Database } from '@platform/db';
 import { connectionInput, type ConnectionInput } from '@platform/contracts';
 import type { McpNotification } from '@platform/mcp';
 import { digest, type Vault } from '../../shared/crypto.js';
@@ -65,6 +65,7 @@ export class ConnectionService {
       },
     });
     this.runtime = new ConnectionRuntime(async (context, slot) => {
+      await this.bindings.assertCredentials(context);
       const adapter = this.lifecycle.wrap(context, await deps.factory(context));
       const current = () => this.runtime.current(slot) && !slot.abort.signal.aborted;
       const unwatch = adapter.watch((notification) =>
@@ -200,12 +201,27 @@ export class ConnectionService {
     const config = connectionInput.parse(
       this.deps.vault.open<ConnectionInput>(row.config, `${ownerId}:${id}`),
     );
-    const scope = sessionScope(config);
+    const caller = currentExecution();
+    const [profile] = caller?.profileId
+      ? await this.deps.db
+          .select()
+          .from(profiles)
+          .where(and(eq(profiles.id, caller.profileId), eq(profiles.ownerId, ownerId)))
+      : [];
+    if (caller?.profileId && !profile)
+      throw new AppError('ACCESS_CONTEXT', 'Agent 不属于当前账号', 403);
+    const scope = sessionScope(config, profile?.connectionIdentities[id]);
     const binding = await this.bindings.resolve({
       ownerId,
       connectionId: id,
       identity: scope.identity,
     });
+    const scopedConfig = await this.bindings.configuration(
+      binding,
+      config,
+      profile?.connectionIdentities[id] === 'profile' ||
+        profile?.connectionIdentities[id] === 'credential',
+    );
     return {
       id,
       ownerId,
@@ -216,7 +232,8 @@ export class ConnectionService {
       runtimeKey: `${id}:${binding.id}:${scope.capabilityKey}:${digest(scope.session)}:${scope.headerKey}`,
       capabilities: currentExecution()?.capabilities ?? PLATFORM_CAPABILITIES,
       correlationId: currentExecution()?.correlationId,
-      config: { ...config, headers: { ...config.headers, ...scope.headers } },
+      profileId: caller?.profileId,
+      config: { ...scopedConfig, headers: { ...scopedConfig.headers, ...scope.headers } },
     };
   }
   async list(ownerId: string) {
@@ -331,6 +348,19 @@ export class ConnectionService {
     await this.owned(ownerId, id);
     for (const key of this.runtime.keys(id)) await this.runtime.invalidate(key).closed;
   }
+  async closeProfile(profileId: string) {
+    for (const key of this.runtime.keysForProfile(profileId))
+      await this.runtime.invalidate(key).closed;
+  }
+  sessions(ownerId: string, filter: { profileId?: string; bindingId?: string }) {
+    return this.runtime
+      .sessions(ownerId)
+      .filter(
+        (session) =>
+          (!filter.profileId || session.profileId === filter.profileId) &&
+          (!filter.bindingId || session.bindingId === filter.bindingId),
+      );
+  }
   async closeBinding(context: ConnectionContext) {
     for (const key of this.runtime.keys(context.id))
       if (key.startsWith(`${context.id}:${context.bindingId}:`))
@@ -341,11 +371,15 @@ export class ConnectionService {
     const old = this.deps.vault.open<ConnectionInput>(row.config, `${ownerId}:${id}`);
     if (!input || typeof input !== 'object' || Array.isArray(input))
       throw new AppError('VALIDATION', '连接更新必须是对象');
-    const config = await this.validate(ownerId, { ...old, ...input });
+    const { revision, ...patch } = input as Record<string, unknown>;
+    if (revision !== undefined && revision !== row.revision)
+      throw new AppError('REVISION_CONFLICT', '连接配置已变化，请重新加载', 409);
+    const config = await this.validate(ownerId, { ...old, ...patch });
     await this.close(ownerId, id);
-    await this.deps.db
+    const updated = await this.deps.db
       .update(connections)
       .set({
+        revision: row.revision + 1,
         name: config.name,
         adapter: config.adapter,
         deviceId: config.deviceId ?? null,
@@ -353,7 +387,10 @@ export class ConnectionService {
         status: 'disconnected',
         error: null,
       })
-      .where(eq(connections.id, id));
+      .where(and(eq(connections.id, id), eq(connections.revision, row.revision)))
+      .returning({ id: connections.id });
+    if (!updated.length) throw new AppError('REVISION_CONFLICT', '连接配置已变化，请重新加载', 409);
+    await this.deps.db.delete(catalogSnapshots).where(eq(catalogSnapshots.connectionId, id));
     return { id };
   }
   async wake(ownerId: string, id: string) {

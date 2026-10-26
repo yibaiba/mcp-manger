@@ -1,3 +1,4 @@
+import { WorkspacePage } from './WorkspacePage.js';
 import { Card } from '../../components/ui/card.js';
 import { CheckChoice } from '../../components/shared/CheckChoice.js';
 import { Button } from '../../components/ui/button.js';
@@ -45,11 +46,24 @@ export default function ProfilesPage() {
     queryKey: ['keys'],
     queryFn: () => api<{ id: string; profileId: string; revoked: boolean }[]>('/profiles/keys/all'),
   });
+  const [workspace, setWorkspace] = useState<string | null>(
+    new URLSearchParams(window.location.search).get('workspace'),
+  );
   const [editing, setEditing] = useState<Profile>();
   const [key, setKey] = useState<unknown>();
   const connectionNames = new Map(
     connections.data?.map((connection) => [connection.id, connection.name]),
   );
+  if (workspace)
+    return (
+      <WorkspacePage
+        profileId={workspace}
+        onBack={() => {
+          setWorkspace(null);
+          window.history.replaceState(null, '', '/profiles');
+        }}
+      />
+    );
   return (
     <>
       <div className="page-heading">
@@ -79,6 +93,7 @@ export default function ProfilesPage() {
               await api(editing ? `/profiles/${editing.id}` : '/profiles', {
                 method: editing ? 'PUT' : 'POST',
                 body: json({
+                  revision: editing?.revision,
                   name: value(data, 'name'),
                   instructions: value(data, 'instructions'),
                   toolIds: data.getAll('toolId'),
@@ -178,6 +193,14 @@ export default function ProfilesPage() {
                 </small>
                 <Code value={`${window.location.origin}/mcp/${profile.id}`} />
                 <div className="row-actions">
+                  <Button
+                    onClick={() => {
+                      setWorkspace(profile.id);
+                      window.history.replaceState(null, '', `/profiles?workspace=${profile.id}`);
+                    }}
+                  >
+                    打开工作空间
+                  </Button>
                   <Button onClick={() => setEditing(profile)}>编辑权限</Button>
                   <ClientExport profileId={profile.id} />
                   <Action

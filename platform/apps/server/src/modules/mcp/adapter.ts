@@ -3,6 +3,7 @@ import type { Tool } from '@platform/mcp';
 import type { ConnectionInput } from '@platform/contracts';
 import type { McpCatalog, McpOperation, McpNotification, Progress } from '@platform/mcp';
 export type ConnectionContext = {
+  profileId?: string;
   id: string;
   ownerId: string;
   config: ConnectionInput;

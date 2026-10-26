@@ -6,11 +6,13 @@ import type { UpstreamOAuth } from './upstreamOAuth.js';
 import type { PiService } from '../pi-runtime/piService.js';
 import { withExecution } from '../mcp/executionContext.js';
 import { AppError } from '../../shared/errors.js';
+import type { ConnectionContext } from '../mcp/adapter.js';
 export function authorizationRoutes(
   deps: {
     connections: ConnectionService;
     oauth: UpstreamOAuth;
     pi: PiService;
+    changed?: () => Promise<void>;
   },
   binding = false,
 ) {
@@ -27,6 +29,8 @@ export function authorizationRoutes(
       await withExecution(
         {
           identity: row.identity,
+          ownerId: owner(c),
+          bindingIdentity: row.identity,
           entry: 'dashboard',
           sessionId: 'authorization',
           capabilities: {},
@@ -43,6 +47,11 @@ export function authorizationRoutes(
       );
     return context;
   }
+  async function identityChanged(context: ConnectionContext) {
+    await deps.connections.closeBinding(context);
+    await deps.connections.bindings.invalidate(context);
+    await deps.changed?.();
+  }
   app.get(`${prefix}`, async (c) => {
     const context = await httpContext(owner(c), paramId(c));
     return Response.json(
@@ -53,7 +62,7 @@ export function authorizationRoutes(
   });
   app.post(`${prefix}/start`, async (c) => {
     const context = await httpContext(owner(c), paramId(c));
-    await deps.connections.closeBinding(context);
+    await identityChanged(context);
     return Response.json(
       context.config.adapter === 'pi'
         ? await deps.pi.action(context, { action: 'auth-start' })
@@ -66,8 +75,11 @@ export function authorizationRoutes(
       .object({ redirectUrl: z.url() })
       .strict()
       .parse(await c.req.json());
-    if (context.config.adapter === 'pi')
-      return Response.json(await deps.pi.action(context, { action: 'auth-complete', args: input }));
+    if (context.config.adapter === 'pi') {
+      const result = await deps.pi.action(context, { action: 'auth-complete', args: input });
+      await identityChanged(context);
+      return Response.json(result);
+    }
     const url = new URL(input.redirectUrl);
     if (url.origin + url.pathname !== deps.oauth.provider(context).redirectUrl)
       return c.json({ error: '回调地址不匹配' }, 400);
@@ -76,6 +88,7 @@ export function authorizationRoutes(
       state: url.searchParams.get('state') ?? '',
       issuer: url.searchParams.get('iss') ?? undefined,
     });
+    await identityChanged(context);
     return c.json({ authorized: true });
   });
   app.get(`${prefix}/callback`, async (c) => {
@@ -85,6 +98,7 @@ export function authorizationRoutes(
       .transform((v) => ({ code: v.code, state: v.state, issuer: v.iss }))
       .parse(c.req.query());
     await deps.oauth.complete(context, input);
+    await identityChanged(context);
     return c.html(
       '<!doctype html><html lang="zh"><meta charset="utf-8"><title>授权完成</title><p>授权完成，请回到 MCP 平台刷新工具。</p></html>',
     );
@@ -92,11 +106,13 @@ export function authorizationRoutes(
   app.delete(`${prefix}`, async (c) => {
     const context = await httpContext(owner(c), paramId(c));
     await deps.connections.closeBinding(context);
-    return Response.json(
+    const result =
       context.config.adapter === 'pi'
         ? await deps.pi.action(context, { action: 'logout' })
-        : await deps.oauth.revoke(context),
-    );
+        : await deps.oauth.revoke(context);
+    await deps.connections.bindings.invalidate(context);
+    await deps.changed?.();
+    return Response.json(result);
   });
   return app;
 }

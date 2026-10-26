@@ -7,10 +7,19 @@ import { Input } from '../../components/ui/input.js';
 import { Code, Empty, Feedback, Field, Form, value } from '../../components/shared/Controls.js';
 import { Disclosure } from '../../components/shared/Disclosure.js';
 
-export function ContentCatalog({ connectionNames }: { connectionNames: Map<string, string> }) {
+export function ContentCatalog({
+  connectionNames,
+  profileId,
+}: {
+  connectionNames: Map<string, string>;
+  profileId?: string;
+}) {
   const catalog = useQuery({
-    queryKey: ['catalog'],
-    queryFn: () => api<ContentEntry[]>('/catalog'),
+    queryKey: ['catalog', profileId],
+    queryFn: async () =>
+      profileId
+        ? (await api<{ content: ContentEntry[] }>(`/profiles/${profileId}/agent/catalog`)).content
+        : api<ContentEntry[]>('/catalog'),
   });
   const [selected, setSelected] = useState<ContentEntry>();
   const [result, setResult] = useState<unknown>();
@@ -64,8 +73,10 @@ export function ContentCatalog({ connectionNames }: { connectionNames: Map<strin
                 submit={async (data) => {
                   const path =
                     selected.kind === 'prompt'
-                      ? `/catalog/prompts/${selected.id}/get`
-                      : '/catalog/resources/read';
+                      ? `${profileId ? `/profiles/${profileId}/agent` : '/catalog'}/prompts/${selected.id}/get`
+                      : profileId
+                        ? `/profiles/${profileId}/agent/resources/read`
+                        : '/catalog/resources/read';
                   const body =
                     selected.kind === 'prompt'
                       ? {

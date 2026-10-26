@@ -29,6 +29,7 @@ export type Device = {
   services: { id: string; status: string; error?: string }[];
 };
 export type Connection = {
+  revision: number;
   identityMode?: string;
   sessions?: string[];
   lifecycle?: { startup: string; idleTimeoutMs?: number; shutdownGraceMs: number };
@@ -71,6 +72,9 @@ export type ContentEntry = {
   };
 };
 export type Profile = {
+  revision: number;
+  requestable: { toolIds: string[]; contentIds: string[]; artifactIds: string[] };
+  connectionIdentities: Record<string, string>;
   instructions?: string;
   id: string;
   name: string;
@@ -96,6 +100,14 @@ export type Artifact = {
   createdAt: string;
 };
 export type Call = {
+  profileId?: string;
+  taskId?: string;
+  bindingId?: string;
+  credentialId?: string;
+  entry?: string;
+  phase?: string;
+  correlationId?: string;
+  revision: number;
   id: string;
   toolId: string;
   adapter: string;
@@ -106,3 +118,16 @@ export type Call = {
   startedAt: string;
   endedAt: string | null;
 };
+
+export const profileUpdate = (profile: Profile, patch: Partial<Profile>) => ({
+  name: profile.name,
+  instructions: profile.instructions,
+  toolIds: profile.toolIds,
+  contentIds: profile.contentIds,
+  skillVersionIds: profile.skillVersionIds,
+  artifactIds: profile.artifactIds,
+  revision: profile.revision,
+  requestable: profile.requestable,
+  connectionIdentities: profile.connectionIdentities,
+  ...patch,
+});
