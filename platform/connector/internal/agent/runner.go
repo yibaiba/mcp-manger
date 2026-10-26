@@ -33,6 +33,9 @@ func (r *Runner) Run(ctx context.Context) error {
 			return nil
 		}
 		err := r.session(ctx)
+		if handler, ok := r.Handler.(interface{ Disconnected() error }); ok {
+			err = errors.Join(err, handler.Disconnected())
+		}
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -71,7 +74,7 @@ func (r *Runner) session(parent context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err = r.send(ctx, conn, map[string]any{"v": 1, "type": "hello", "os": runtime.GOOS, "version": Version, "hostname": hostname}); err != nil {
+	if err = r.send(ctx, conn, map[string]any{"v": 1, "type": "hello", "os": runtime.GOOS, "version": Version, "hostname": hostname, "capabilities": []string{"sessions", "health", "oauth", "elicitation", "apps"}}); err != nil {
 		return err
 	}
 	if handler, ok := r.Handler.(interface {

@@ -18,6 +18,8 @@ export function parseCatalog(value: unknown): McpCatalog {
       resourceTemplates: raw.templates,
     }).resourceTemplates,
     capabilities: parse(specTypeSchemas.ServerCapabilities, raw.capabilities),
+    serverInfo: raw.serverInfo ? parse(specTypeSchemas.Implementation, raw.serverInfo) : undefined,
+    instructions: typeof raw.instructions === 'string' ? raw.instructions : undefined,
     protocolVersion: typeof raw.protocolVersion === 'string' ? raw.protocolVersion : undefined,
   };
   validateToolSchemas(catalog.tools);

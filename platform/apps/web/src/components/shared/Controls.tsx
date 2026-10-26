@@ -107,10 +107,12 @@ export function Form({
   children,
   submit,
   label = '保存',
+  noValidate = false,
 }: {
   children: ReactNode;
   submit: (data: FormData) => Promise<unknown>;
   label?: string;
+  noValidate?: boolean;
 }) {
   const query = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -133,7 +135,7 @@ export function Form({
     }
   }
   return (
-    <form onSubmit={(e) => void onSubmit(e)} className="form">
+    <form onSubmit={(e) => void onSubmit(e)} className="form" noValidate={noValidate}>
       {children}
       <Feedback error={error} />
       <div className="form-footer">

@@ -15,6 +15,7 @@ import type { ConnectionService, ConnectionEvent } from './connectionService.js'
 import { scopedUri } from './catalogEntries.js';
 import { ResourceSubscriptions } from './resourceSubscriptions.js';
 import { streamFinally } from './gatewayStream.js';
+import { withExecution } from './executionContext.js';
 import { AppError } from '../../shared/errors.js';
 
 type Session = {
@@ -51,13 +52,14 @@ export class Gateway {
   async handle(request: Request, principal: Principal) {
     if (await isLegacyRequest(request)) return this.legacy(request, principal);
     let entry = this.modern.get(principal.credentialId);
+    const channel = `modern:${principal.credentialId}`;
     if (!entry) {
       const handler = createMcpHandler(
         (context) =>
           createGatewayServer({
             ...this.handlers,
             principal: { ...principal, token: context.authInfo?.token ?? principal.token },
-            channel: randomUUID(),
+            channel,
             era: context.era,
           }),
         { legacy: 'reject', onerror: (error) => console.error('MCP gateway', error.message) },
@@ -66,7 +68,16 @@ export class Gateway {
       this.modern.set(principal.credentialId, entry);
     }
     entry.principal.token = principal.token;
-    return this.modernRequest(entry, request, principal);
+    return withExecution(
+      {
+        identity: principal.credentialId,
+        entry: 'gateway',
+        sessionId: channel,
+        capabilities: {},
+        headers: requestHeaders(request.headers),
+      },
+      () => this.modernRequest(entry!, request, principal),
+    );
   }
   private async modernRequest(entry: Modern, request: Request, principal: Principal) {
     const authInfo = { token: principal.token, clientId: principal.credentialId, scopes: ['mcp'] };
@@ -119,7 +130,16 @@ export class Gateway {
       )
         return Response.json({ error: '会话无效，请重新连接' }, { status: 404 });
       session.principal.token = principal.token;
-      return session.transport.handleRequest(request);
+      return withExecution(
+        {
+          identity: principal.credentialId,
+          entry: 'gateway',
+          sessionId: session.channel,
+          capabilities: session.server.getClientCapabilities() ?? {},
+          headers: requestHeaders(request.headers),
+        },
+        () => session.transport.handleRequest(request),
+      );
     }
     if (request.method !== 'POST') return new Response('MCP session required', { status: 400 });
     const body = await readRequestBody(request.clone());
@@ -135,7 +155,23 @@ export class Gateway {
     }
     if (!isInitializeRequest(parsed)) return new Response('Initialize required', { status: 400 });
     const channel = randomUUID();
-    const server = createGatewayServer({ ...this.handlers, principal, channel, era: 'legacy' });
+    const server = await withExecution(
+      {
+        identity: principal.credentialId,
+        profileId: principal.profileId,
+        entry: 'gateway',
+        sessionId: channel,
+        capabilities: parsed.params.capabilities,
+        headers: requestHeaders(request.headers),
+      },
+      () =>
+        createGatewayServer({
+          ...this.handlers,
+          principal,
+          channel,
+          era: 'legacy',
+        }),
+    );
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: randomUUID,
       onsessioninitialized: (id) => {
@@ -153,6 +189,11 @@ export class Gateway {
   }
   private async notify(event: ConnectionEvent) {
     for (const session of this.sessions.values()) {
+      if (
+        event.sessionId &&
+        event.sessionId !== `gateway:${session.principal.credentialId}:${session.channel}`
+      )
+        continue;
       if (!(await this.visible(session.principal, event))) continue;
       const { method, params } = event.notification;
       if (method === 'notifications/resources/updated') {
@@ -163,6 +204,12 @@ export class Gateway {
       } else await session.server.notification({ method });
     }
     for (const entry of this.modern.values()) {
+      if (
+        event.sessionId &&
+        event.sessionId !==
+          `gateway:${entry.principal.credentialId}:modern:${entry.principal.credentialId}`
+      )
+        continue;
       if (!(await this.visible(entry.principal, event))) continue;
       const { method, params } = event.notification;
       if (method === 'notifications/tools/list_changed') entry.handler.notify.toolsChanged();
@@ -202,13 +249,19 @@ export class Gateway {
     this.deps.invocations.revoke({ credentialId });
     await this.remove((principal) => principal.credentialId === credentialId);
   }
-  private async connectionClosing(connectionId: string) {
+  private async connectionClosing(context: import('./adapter.js').ConnectionContext) {
+    const connectionId = context.id;
+    const matches = (credentialId: string, channel: string) =>
+      !context.sessionId || context.sessionId === `gateway:${credentialId}:${channel}`;
     const affected = new Set<string>();
     for (const session of this.sessions.values()) {
+      if (!matches(session.principal.credentialId, session.channel)) continue;
       if (this.subscriptions.includesConnection(session.channel, connectionId))
         affected.add(session.principal.credentialId);
     }
     for (const entry of this.modern.values()) {
+      if (!matches(entry.principal.credentialId, `modern:${entry.principal.credentialId}`))
+        continue;
       if (
         [...entry.channels].some((channel) =>
           this.subscriptions.includesConnection(channel, connectionId),
@@ -241,4 +294,12 @@ export class Gateway {
     this.unwatchClosing();
     await this.remove(() => true);
   }
+}
+
+function requestHeaders(headers: Headers) {
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
 }

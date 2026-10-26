@@ -7,6 +7,11 @@ export function redactConnectionText(message: string, config: ConnectionInput) {
     ...Object.values(config.headers),
     ...Object.values(config.env),
     config.oauth?.clientSecret,
+    ...Object.values(config.openapi?.credentials ?? {}).flatMap((credential) => [
+      credential.value,
+      credential.password,
+      credential.clientSecret,
+    ]),
   ]
     .filter((value): value is string => Boolean(value))
     .sort((left, right) => right.length - left.length);

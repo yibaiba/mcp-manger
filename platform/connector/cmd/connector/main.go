@@ -12,6 +12,7 @@ import (
 	"mcplatform/connector/internal/files"
 	"mcplatform/connector/internal/install"
 	"mcplatform/connector/internal/mcpclient"
+	"mcplatform/connector/internal/processtree"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,11 +33,15 @@ func execute() error {
 	}
 	action := os.Args[1]
 	flags := flag.NewFlagSet(action, flag.ContinueOnError)
+	grace := flags.Duration("grace", 5*time.Second, "managed process shutdown grace period")
 	path := flags.String("config", "connector.json", "configuration path")
 	server := flags.String("server", "", "platform origin")
 	scope := flags.String("scope", "user", "user for desktop apps; system for background services")
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return err
+	}
+	if action == "stdio-host" {
+		return processtree.Host(flags.Args(), *grace)
 	}
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	if action == "pair" {

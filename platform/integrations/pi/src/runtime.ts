@@ -1,4 +1,5 @@
 import { fork } from 'node:child_process';
+import { authorizationCoordinator } from './authorizationCoordinator.js';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -13,11 +14,15 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { TSchema } from 'typebox';
 import type { McpNotification, McpOperation, McpRequestOptions, Progress } from '@platform/mcp';
+import { isInputRequiredResult } from '@platform/mcp';
 type Tool = { name: string; description?: string; inputSchema: Record<string, unknown> };
 type Result = { content: { type: string; [key: string]: unknown }[]; [key: string]: unknown };
 export type Context = {
   id: string;
   ownerId: string;
+  bindingId?: string;
+  runtimeKey?: string;
+  capabilities?: Record<string, unknown>;
   config: {
     transport?: string;
     command?: string;
@@ -26,17 +31,36 @@ export type Context = {
     cwd?: string;
     url?: string;
     headers: Record<string, string>;
-    oauth?: { clientId?: string; clientSecret?: string; scope?: string };
+    oauth?: {
+      clientId?: string;
+      clientSecret?: string;
+      scope?: string;
+      clientMetadataUrl?: string;
+      tokenEndpointAuthMethod?: 'none' | 'client_secret_post' | 'client_secret_basic';
+    };
+    lifecycle?: { shutdownGraceMs: number };
   };
 };
-export async function bridge(options: { context: Context; directory: string }) {
+export async function bridge(options: {
+  context: Context;
+  directory: string;
+  authorizationKey?: string;
+}) {
   await mkdir(options.directory, { recursive: true, mode: 0o700 });
   const worker = fork(new URL('./worker.ts', import.meta.url), [], {
     execArgv: ['--import', 'tsx'],
-    env: { ...process.env, PI_CODING_AGENT_DIR: options.directory },
+    env: {
+      ...process.env,
+      PI_CODING_AGENT_DIR: options.directory,
+      PI_MCP_ADAPTER_OAUTH_FILE_KEY:
+        options.authorizationKey ?? process.env.PI_MCP_ADAPTER_OAUTH_FILE_KEY,
+    },
     stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
   });
   let connected = false;
+  const lifetime = new AbortController();
+  const authLeases = new Map<string, () => void>();
+  const interactions = new Map<string, () => void>();
   const listeners = new Set<(notification: McpNotification) => void>();
   const pending = new Map<
     string,
@@ -56,6 +80,28 @@ export async function bridge(options: { context: Context; directory: string }) {
       notification?: McpNotification;
       progress?: Progress;
     }) => {
+      if (message.type === 'auth-acquire') {
+        void authorizationCoordinator.acquire(options.directory, lifetime.signal).then(
+          (lease) => {
+            if (!worker.connected) {
+              lease.release();
+              return;
+            }
+            authLeases.set(message.id, lease.release);
+            worker.send({ type: 'auth-granted', id: message.id });
+          },
+          (error) => {
+            if (worker.connected)
+              worker.send({ type: 'auth-granted', id: message.id, error: String(error) });
+          },
+        );
+        return;
+      }
+      if (message.type === 'auth-release') {
+        authLeases.get(message.id)?.();
+        authLeases.delete(message.id);
+        return;
+      }
       if (message.type === 'notification' && message.notification) {
         for (const listener of listeners) listener(message.notification);
         return;
@@ -76,6 +122,9 @@ export async function bridge(options: { context: Context; directory: string }) {
     pending.clear();
   });
   worker.on('exit', (code) => {
+    lifetime.abort(new Error('Pi worker exited'));
+    for (const release of authLeases.values()) release();
+    authLeases.clear();
     connected = false;
     for (const call of pending.values())
       call.reject(new Error(`Pi bridge exited (${code}); in-flight result unknown`));
@@ -143,15 +192,47 @@ export async function bridge(options: { context: Context; directory: string }) {
     },
     request: (operation: McpOperation, options: McpRequestOptions = {}) =>
       request('request', { operation, progress: !!options.onprogress }, options),
-    call: (input: { name: string; arguments: Record<string, unknown> } & McpRequestOptions) =>
-      request(
+    call: async (
+      input: { name: string; arguments: Record<string, unknown> } & McpRequestOptions,
+    ) => {
+      if (input.requestState) {
+        interactions.get(input.requestState)?.();
+        interactions.delete(input.requestState);
+      }
+      const result = await request(
         'call',
-        { name: input.name, arguments: input.arguments, progress: !!input.onprogress },
+        {
+          name: input.name,
+          arguments: input.arguments,
+          progress: !!input.onprogress,
+          requestState: input.requestState,
+          inputResponses: input.inputResponses,
+        },
         input,
-      ),
+      );
+      if (isInputRequiredResult(result) && result.requestState && input.signal) {
+        const state = result.requestState;
+        const signal = input.signal;
+        const cancel = () => {
+          interactions.delete(state);
+          void request('interaction.cancel', { requestState: state }).catch((error: unknown) =>
+            console.error('Pi interaction cancellation failed', error),
+          );
+        };
+        interactions.set(state, () => signal.removeEventListener('abort', cancel));
+        signal.addEventListener('abort', cancel, { once: true });
+        if (signal.aborted) cancel();
+      }
+      return result;
+    },
+    check: async (signal?: AbortSignal) => {
+      await request('check', {}, { signal });
+    },
     action: (input: Record<string, unknown>) => request('action', input),
     close: async () => {
       connected = false;
+      for (const removeListener of interactions.values()) removeListener();
+      interactions.clear();
       listeners.clear();
       if (!worker.connected) return;
       try {
@@ -168,6 +249,7 @@ type RunOptions = {
   provider: string;
   model: string;
   prompt: string;
+  instructions?: string;
   tools: Tool[];
   skills: { name: string; files: Record<string, string> }[];
   call: (name: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<Result>;
@@ -205,10 +287,13 @@ export async function run(options: RunOptions) {
     noThemes: true,
     noContextFiles: true,
     skillsOverride: () => skills,
-    appendSystemPrompt: options.skills.map(
-      (skill) =>
-        `Skill ${skill.name}:\n${Buffer.from(skill.files['SKILL.md']!, 'base64').toString()}`,
-    ),
+    appendSystemPrompt: [
+      options.instructions ?? '',
+      ...options.skills.map(
+        (skill) =>
+          `Skill ${skill.name}:\n${Buffer.from(skill.files['SKILL.md']!, 'base64').toString()}`,
+      ),
+    ].filter(Boolean),
   });
   await loader.reload();
   const customTools: ToolDefinition[] = options.tools.map((tool) => ({

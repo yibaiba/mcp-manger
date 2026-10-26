@@ -23,6 +23,14 @@ type Pending = {
   onprogress?: (progress: Progress) => void;
 };
 export class DeviceBroker {
+  private readonly capabilities = new Map<string, readonly string[]>();
+  hasCapability(id: string, capability: string) {
+    return this.capabilities.get(id)?.includes(capability) ?? false;
+  }
+  requireCapability(id: string, capability: string) {
+    if (!this.hasCapability(id, capability))
+      throw new AppError('CONNECTOR_UPGRADE', `设备连接器需要升级以支持 ${capability}`, 409);
+  }
   private readonly sockets = new Map<string, WebSocket>();
   private readonly pending = new Map<string, Pending>();
   private readonly listeners = new Map<string, Set<(event: McpNotification) => void>>();
@@ -67,12 +75,15 @@ export class DeviceBroker {
   private async receive(id: string, socket: WebSocket, raw: string) {
     if (this.sockets.get(id) !== socket) return;
     const message = deviceResponse.parse(JSON.parse(raw));
+    if (message.type === 'hello') this.capabilities.set(id, message.capabilities ?? []);
     if (message.type === 'notification') {
       if (message.method === 'notifications/progress') {
         const pending = message.requestId ? this.pending.get(message.requestId) : undefined;
         if (pending?.socket === socket) pending.onprogress?.(progressSchema.parse(message.params));
       } else {
-        for (const listener of this.listeners.get(`${id}:${message.connectionId}`) ?? [])
+        for (const listener of this.listeners.get(
+          `${id}:${message.connectionId}:${message.sessionId ?? ''}`,
+        ) ?? [])
           listener({ method: message.method, params: message.params });
       }
       return;
@@ -135,13 +146,15 @@ export class DeviceBroker {
   disconnect(id: string) {
     this.sockets.get(id)?.terminate();
     this.sockets.delete(id);
+    this.capabilities.delete(id);
   }
   watch(input: {
     deviceId: string;
     connectionId: string;
+    sessionId?: string;
     listener: (event: McpNotification) => void;
   }) {
-    const key = `${input.deviceId}:${input.connectionId}`;
+    const key = `${input.deviceId}:${input.connectionId}:${input.sessionId ?? ''}`;
     const listeners = this.listeners.get(key) ?? new Set();
     this.listeners.set(key, listeners);
     listeners.add(input.listener);

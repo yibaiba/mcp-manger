@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export { clientPresets, type ClientPreset } from './clientPresets.js';
 export const PROTOCOL_VERSION = 1;
 export const CALL_TIMEOUT_MS = 60_000;
 export const HEARTBEAT_MS = 15_000;
@@ -18,6 +19,34 @@ export const httpUrl = z
 export const connectionInput = z
   .object({
     name: z.string().trim().min(1),
+    source: z.enum(['mcp', 'openapi']).default('mcp'),
+    openapi: z
+      .object({
+        document: z.record(z.string(), z.unknown()),
+        baseUrl: httpUrl,
+        operations: z.array(z.string()).min(1),
+        securityChoices: z.record(z.string(), z.number().int().nonnegative()).default({}),
+        credentials: z
+          .record(
+            z.string(),
+            z
+              .object({
+                value: z.string().optional(),
+                username: z.string().optional(),
+                password: z.string().optional(),
+                clientId: z.string().optional(),
+                clientSecret: z.string().optional(),
+                tokenEndpointAuthMethod: z
+                  .enum(['none', 'client_secret_post', 'client_secret_basic'])
+                  .optional(),
+                scopes: z.array(z.string()).default([]),
+              })
+              .strict(),
+          )
+          .default({}),
+      })
+      .strict()
+      .optional(),
     adapter: z.enum(['direct', 'device', 'pi']),
     deviceId: idSchema.optional(),
     transport: z.enum(['http', 'sse', 'stdio']),
@@ -28,17 +57,51 @@ export const connectionInput = z
     env: z.record(z.string(), z.string()).default({}),
     headers: z.record(z.string(), z.string()).default({}),
     cwd: z.string().optional(),
+    identityMode: z.enum(['shared', 'independent']).default('shared'),
+    forwardHeaders: z.array(z.string().regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/)).default([]),
+    lifecycle: z
+      .object({
+        startup: z.enum(['eager', 'on-demand']).default('eager'),
+        idleTimeoutMs: z.number().int().positive().optional(),
+        shutdownGraceMs: z.number().int().nonnegative().default(5_000),
+      })
+      .default({ startup: 'eager', shutdownGraceMs: 5_000 }),
+    health: z
+      .object({
+        enabled: z.boolean().default(false),
+        intervalMs: z.number().int().positive().default(60_000),
+        timeoutMs: z.number().int().positive().default(5_000),
+        recover: z.boolean().default(false),
+      })
+      .default({ enabled: false, intervalMs: 60_000, timeoutMs: 5_000, recover: false }),
     oauth: z
       .object({
         clientId: z.string().optional(),
         clientSecret: z.string().optional(),
         scope: z.string().optional(),
+        clientMetadataUrl: httpUrl.optional(),
+        tokenEndpointAuthMethod: z
+          .enum(['none', 'client_secret_post', 'client_secret_basic'])
+          .optional(),
       })
       .optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
     const fail = (message: string) => ctx.addIssue({ code: 'custom', message });
+    for (const header of v.forwardHeaders)
+      if (
+        /^(authorization|proxy-authorization|cookie|set-cookie|host|origin|connection|content-length|content-type|accept|mcp-.*|last-event-id|transfer-encoding)$/i.test(
+          header,
+        )
+      )
+        fail(`请求头 ${header} 不允许动态转发`);
+    if (v.source === 'openapi') {
+      if (v.adapter !== 'direct' || !v.openapi) fail('OpenAPI 来源必须配置文档并在平台执行');
+      if (v.transport !== 'http' || v.mode !== 'existing')
+        fail('OpenAPI 来源不使用 MCP 传输或托管进程');
+      return;
+    }
     if (v.adapter === 'device' && !v.deviceId) fail('设备连接必须选择设备');
     if (v.adapter !== 'device' && v.deviceId) fail('平台执行的连接不能关联设备');
     if (v.adapter !== 'device' && v.mode === 'managed' && v.transport !== 'stdio')
@@ -61,6 +124,7 @@ export type ImportPreview = {
 export const profileInput = z
   .object({
     name: z.string().trim().min(1),
+    instructions: z.string().default(''),
     toolIds: z.array(z.string()).default([]),
     contentIds: z.array(z.string()).default([]),
     skillVersionIds: z.array(idSchema).default([]),
@@ -68,7 +132,10 @@ export const profileInput = z
   })
   .strict();
 export const callInput = z
-  .object({ arguments: z.record(z.string(), z.unknown()).default({}) })
+  .object({
+    arguments: z.record(z.string(), z.unknown()).default({}),
+    interactionDeadline: z.iso.datetime().optional(),
+  })
   .strict();
 export const deviceResponse = z.discriminatedUnion('type', [
   z
@@ -85,6 +152,7 @@ export const deviceResponse = z.discriminatedUnion('type', [
       ]),
       params: z.record(z.string(), z.unknown()).optional(),
       requestId: idSchema.optional(),
+      sessionId: z.string().optional(),
     })
     .strict(),
   z
@@ -94,6 +162,7 @@ export const deviceResponse = z.discriminatedUnion('type', [
       os: z.string(),
       version: z.string(),
       hostname: z.string(),
+      capabilities: z.array(z.string()).optional(),
     })
     .strict(),
   z
@@ -124,6 +193,9 @@ export type DeviceRequest = {
     | 'discover'
     | 'catalog'
     | 'mcp.request'
+    | 'interaction.cancel'
+    | 'check'
+    | 'oauth.request'
     | 'call'
     | 'close'
     | 'skill.install'

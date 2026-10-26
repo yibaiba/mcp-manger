@@ -19,7 +19,9 @@ func (d *Dispatch) Execute(ctx context.Context, method string, params json.RawMe
 		return nil, err
 	}
 	switch method {
-	case "discover", "catalog", "mcp.request", "call", "close":
+	case "oauth.request":
+		return d.MCP.OAuthRequest(ctx, params)
+	case "discover", "catalog", "mcp.request", "call", "close", "check", "interaction.cancel":
 		return d.MCP.Execute(ctx, method, params)
 	case "skill.install":
 		return d.Skills.Install(params)
@@ -30,5 +32,6 @@ func (d *Dispatch) Execute(ctx context.Context, method string, params json.RawMe
 	}
 }
 func (d *Dispatch) Status() []map[string]string { return d.MCP.Status() }
+func (d *Dispatch) Disconnected() error         { return d.MCP.CloseAll() }
 
 func (d *Dispatch) SetNotifier(notify func(mcpclient.Notification)) { d.MCP.SetNotifier(notify) }

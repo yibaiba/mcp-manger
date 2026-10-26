@@ -2,15 +2,16 @@ import {
   Client,
   StreamableHTTPClientTransport,
   SSEClientTransport,
-  StdioClientTransport,
+  ManagedStdioTransport,
   discoverCatalog,
   executeOperation,
-  executeTool,
+  InteractiveClient,
   observeNotifications,
   McpValidationError,
   type McpNotification,
   type McpCatalog,
 } from '@platform/mcp';
+import { isInputRequiredResult } from '@platform/mcp';
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { AppError, errorMessage } from '../../shared/errors.js';
 import { CALL_TIMEOUT_MS, type ConnectionInput } from '@platform/contracts';
@@ -19,20 +20,34 @@ import type { ConnectionAdapter, ConnectionContext } from './adapter.js';
 import { observeStdioStderr } from './stdioDiagnostics.js';
 import { redactConnectionText } from './connectionDiagnostics.js';
 import { awaitConnection } from './awaitConnection.js';
+import { toolDispatchFetch } from '@platform/mcp';
 
-type DirectEffects = { logStderr: (message: string) => void };
+type DirectEffects = {
+  logStderr: (message: string) => void;
+  fetch?: typeof fetch;
+  beforeCall?: () => Promise<unknown>;
+};
 type DirectSession = ReturnType<typeof createSession>;
 
-function createTransport(config: ConnectionInput, authProvider: OAuthClientProvider) {
+function createTransport(input: {
+  config: ConnectionInput;
+  authProvider: OAuthClientProvider;
+  fetch: typeof fetch;
+}) {
+  const { config, authProvider } = input;
   if (config.transport === 'stdio')
-    return new StdioClientTransport({
+    return new ManagedStdioTransport({
       command: config.command!,
       args: config.args,
       env: config.env,
       cwd: config.cwd,
-      stderr: 'pipe',
+      shutdownGraceMs: config.lifecycle.shutdownGraceMs,
     });
-  const options = { requestInit: { headers: config.headers }, authProvider };
+  const options = {
+    requestInit: { headers: config.headers },
+    authProvider,
+    fetch: toolDispatchFetch(input.fetch),
+  };
   if (config.transport === 'sse') return new SSEClientTransport(new URL(config.url!), options);
   return new StreamableHTTPClientTransport(new URL(config.url!), options);
 }
@@ -49,13 +64,22 @@ function createSession(input: {
   const client = new Client(
     { name: 'mcp-platform', version: '0.1.0' },
     {
+      capabilities: input.context.capabilities,
       versionNegotiation: { mode: config.transport === 'sse' ? 'legacy' : 'auto' },
       inputRequired: { autoFulfill: false },
     },
   );
-  const transport = createTransport(config, input.authProvider);
+  const transport = createTransport({
+    config,
+    authProvider: input.authProvider,
+    fetch: input.effects.fetch ?? fetch,
+  });
+  const interactive = new InteractiveClient(
+    client,
+    Boolean(input.context.capabilities?.elicitation),
+  );
   const diagnose =
-    transport instanceof StdioClientTransport && transport.stderr
+    transport instanceof ManagedStdioTransport && transport.stderr
       ? observeStdioStderr(transport.stderr, {
           redact: (message) => redactConnectionText(message, config),
           log: input.effects.logStderr,
@@ -85,7 +109,7 @@ function createSession(input: {
     .catch((error: unknown) => {
       throw diagnose(error);
     });
-  return { client, ready, diagnose, active: () => active };
+  return { client, interactive, transport, ready, diagnose, active: () => active };
 }
 
 export function createDirectAdapter(
@@ -139,13 +163,16 @@ export function createDirectAdapter(
     },
     async call(input) {
       input.signal?.throwIfAborted();
+      if (context.config.transport !== 'stdio') await effects.beforeCall?.();
       const current = acquire();
       await awaitConnection(current.ready, input.signal);
       input.signal?.throwIfAborted();
-      const tool = catalog?.tools.find((tool) => tool.name === input.name);
+      catalog ??= await discoverCatalog(current.client, input.signal);
+      const tool = catalog.tools.find((tool) => tool.name === input.name);
       if (!tool) throw new AppError('TOOL_NOT_DISCOVERED', '请先刷新工具目录', 409);
       try {
-        return CallToolResultSchema.parse(await executeTool(current.client, { ...input, tool }));
+        const result = await current.interactive.call({ ...input, tool });
+        return isInputRequiredResult(result) ? result : CallToolResultSchema.parse(result);
       } catch (error) {
         if (error instanceof McpValidationError)
           throw new AppError('SCHEMA_VALIDATION', error.message, 422);
@@ -156,12 +183,22 @@ export function createDirectAdapter(
         );
       }
     },
+    async check(signal) {
+      const current = acquire();
+      await awaitConnection(current.ready, signal);
+      if (current.client.getProtocolEra() === 'modern') await current.client.discover({ signal });
+      else await current.client.ping({ signal });
+    },
     async close() {
       lifetime.abort(new Error('连接已关闭'));
       const current = session;
       session = undefined;
       listeners.clear();
-      await current?.client.close();
+      try {
+        await current?.client.close();
+      } finally {
+        await current?.transport.close();
+      }
     },
   };
 }

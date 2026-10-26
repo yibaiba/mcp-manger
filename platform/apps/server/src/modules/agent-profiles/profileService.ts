@@ -13,8 +13,12 @@ import { profileInput } from '@platform/contracts';
 import { digest, secretToken } from '../../shared/crypto.js';
 import { AppError, requireValue } from '../../shared/errors.js';
 export type Principal = { ownerId: string; profileId: string; credentialId: string; token: string };
+import type { ConnectionService } from '../mcp/connectionService.js';
 export class ProfileService {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly connections?: ConnectionService,
+  ) {}
   async owned(ownerId: string, id: string) {
     const [profile] = await this.db
       .select()
@@ -136,13 +140,69 @@ export class ProfileService {
     if (grant) return { ownerId: grant.ownerId, profileId, credentialId: grant.id, token };
     throw new AppError('UNAUTHORIZED', 'Agent 凭证无效、已过期或已撤销', 401);
   }
-  async catalog(ownerId: string, profileId?: string) {
+  private async scopedCatalog(ownerId: string, rows: (typeof tools.$inferSelect)[]) {
+    if (!this.connections) return rows;
+    const snapshots = new Map(
+      await Promise.all(
+        [...new Set(rows.map((row) => row.connectionId))].map(async (id) => {
+          const snapshot = await this.connections!.catalogForAccess(ownerId, id);
+          return [id, snapshot] as const;
+        }),
+      ),
+    );
+    return rows.flatMap((row) => {
+      const definition = snapshots
+        .get(row.connectionId)
+        ?.tools.find((tool) => tool.name === row.name);
+      return definition ? [{ ...row, definition }] : [];
+    });
+  }
+  async instructions(ownerId: string, profileId: string) {
+    const profile = await this.owned(ownerId, profileId);
+    const catalog = await this.catalog(ownerId, profileId);
+    const content = profile.contentIds.length
+      ? await this.db
+          .select({ connectionId: mcpEntries.connectionId })
+          .from(mcpEntries)
+          .where(and(eq(mcpEntries.ownerId, ownerId), inArray(mcpEntries.id, profile.contentIds)))
+      : [];
+    const ids = [...new Set([...catalog, ...content].map((row) => row.connectionId))].sort();
+    const descriptions = await Promise.all(
+      ids.map(async (id) => {
+        const row = await this.connections?.owned(ownerId, id);
+        const snapshot = await this.connections?.catalogForAccess(ownerId, id);
+        const text = snapshot?.instructions;
+        return text ? `[${row?.name ?? id} · ${id}]\n${text}` : '';
+      }),
+    );
+    return [profile.instructions, ...descriptions].filter(Boolean).join('\n\n');
+  }
+  async catalog(ownerId: string, profileId?: string, connectionId?: string) {
     const rows = await this.db
       .select()
       .from(tools)
-      .where(and(eq(tools.ownerId, ownerId), eq(tools.available, true)));
-    if (!profileId) return rows;
+      .where(
+        and(
+          eq(tools.ownerId, ownerId),
+          connectionId ? eq(tools.connectionId, connectionId) : undefined,
+        ),
+      );
+    if (!profileId) return this.scopedCatalog(ownerId, rows);
     const profile = await this.owned(ownerId, profileId);
-    return rows.filter((tool) => profile.toolIds.includes(tool.id));
+    return this.scopedCatalog(
+      ownerId,
+      rows.filter((tool) => profile.toolIds.includes(tool.id)),
+    );
+  }
+  async tool(ownerId: string, input: { toolId: string; profileId?: string }) {
+    if (input.profileId) {
+      const profile = await this.owned(ownerId, input.profileId);
+      if (!profile.toolIds.includes(input.toolId)) return undefined;
+    }
+    const rows = await this.db
+      .select()
+      .from(tools)
+      .where(and(eq(tools.ownerId, ownerId), eq(tools.id, input.toolId)));
+    return (await this.scopedCatalog(ownerId, rows))[0];
   }
 }

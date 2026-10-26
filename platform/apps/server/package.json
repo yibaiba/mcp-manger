@@ -9,8 +9,10 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
+    "@apidevtools/swagger-parser": "13.1.0",
     "@hono/node-server": "1.14.4",
     "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/ext-apps": "2.0.3",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@modelcontextprotocol/server": "2.3.1",
     "@platform/auth": "workspace:*",

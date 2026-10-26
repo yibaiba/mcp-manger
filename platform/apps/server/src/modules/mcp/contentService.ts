@@ -1,4 +1,5 @@
 import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 import { mcpEntries, tools, type Database } from '@platform/db';
 import { UriTemplate } from '@modelcontextprotocol/server';
 import {
@@ -9,7 +10,8 @@ import type { McpOperation, McpRequestOptions } from '@platform/mcp';
 import { AppError } from '../../shared/errors.js';
 import type { ProfileService, Principal } from '../agent-profiles/profileService.js';
 import type { ConnectionService } from './connectionService.js';
-import { scopedUri, scopeResult } from './catalogEntries.js';
+import { catalogEntries } from './catalogEntries.js';
+import { scopedUri, scopeResult, originalUri } from './catalogEntries.js';
 
 export type ContentEntry = typeof mcpEntries.$inferSelect;
 export type ContentAccess = { ownerId: string; profileId?: string; principal?: Principal };
@@ -22,16 +24,35 @@ export class ContentService {
       connections: ConnectionService;
     },
   ) {}
-  async catalog(access: ContentAccess) {
+  async catalog(access: ContentAccess, connectionId?: string) {
     if (access.principal)
       await this.deps.profiles.authenticate(access.principal.profileId, access.principal.token);
     const rows = await this.deps.db
       .select()
       .from(mcpEntries)
-      .where(and(eq(mcpEntries.ownerId, access.ownerId), eq(mcpEntries.available, true)));
-    if (!access.profileId) return rows;
-    const profile = await this.deps.profiles.owned(access.ownerId, access.profileId);
-    return rows.filter((row) => profile.contentIds.includes(row.id));
+      .where(
+        and(
+          eq(mcpEntries.ownerId, access.ownerId),
+          connectionId ? eq(mcpEntries.connectionId, connectionId) : undefined,
+        ),
+      );
+    const profile = access.profileId
+      ? await this.deps.profiles.owned(access.ownerId, access.profileId)
+      : undefined;
+    const granted = profile ? rows.filter((row) => profile.contentIds.includes(row.id)) : rows;
+    const visible = await this.scopedCatalog(access.ownerId, granted);
+    return profile ? visible.filter((row) => profile.contentIds.includes(row.id)) : visible;
+  }
+  private async scopedCatalog(ownerId: string, rows: ContentEntry[]) {
+    const scoped = await Promise.all(
+      [...new Set(rows.map((row) => row.connectionId))].map(async (id) => {
+        const catalog = await this.deps.connections.catalogForAccess(ownerId, id);
+        return catalog
+          ? catalogEntries(await this.deps.connections.context(ownerId, id), catalog)
+          : [];
+      }),
+    );
+    return scoped.flat();
   }
   definition(entry: ContentEntry) {
     const { definition, connectionId } = entry;
@@ -66,7 +87,12 @@ export class ContentService {
   async prompt(
     input: ContentAccess & { id: string; arguments?: Record<string, string> } & McpRequestOptions,
   ) {
-    const entry = (await this.catalog(input)).find(
+    const [stored] = await this.deps.db
+      .select()
+      .from(mcpEntries)
+      .where(and(eq(mcpEntries.ownerId, input.ownerId), eq(mcpEntries.id, input.id)));
+    if (!stored) throw new AppError('PROMPT_FORBIDDEN', '该 Prompt 不存在或未授权', 403);
+    const entry = (await this.catalog(input, stored.connectionId)).find(
       (row) => row.kind === 'prompt' && row.id === input.id,
     );
     if (!entry) throw new AppError('PROMPT_FORBIDDEN', '该 Prompt 不存在或未授权', 403);
@@ -75,16 +101,18 @@ export class ContentService {
       { method: 'prompts/get', params: { name: entry.locator, arguments: input.arguments } },
       input,
     );
-    await this.assertStillGranted(input, entry.id);
+    await this.assertStillGranted(input, entry);
     return scopeResult(entry.connectionId, GetPromptResultSchema.parse(result));
   }
   async resolveResource(access: ContentAccess, uri: string) {
-    const entries = await this.catalog(access);
+    const connection = z.uuid().safeParse(/^(?:mcp-platform|ui):\/\/([^/]+)\//.exec(uri)?.[1]);
+    if (!connection.success)
+      throw new AppError('RESOURCE_FORBIDDEN', '资源 URI 缺少有效连接命名空间', 403);
+    const entries = await this.catalog(access, connection.data);
     for (const entry of entries) {
       if (entry.kind === 'prompt') continue;
-      const prefix = scopedUri(entry.connectionId, '');
-      if (!uri.startsWith(prefix)) continue;
-      const original = uri.slice(prefix.length);
+      const original = originalUri(entry.connectionId, uri);
+      if (original === undefined) continue;
       if (entry.kind === 'resource' && original === entry.locator) return { entry, original };
       if (entry.kind === 'template' && new UriTemplate(entry.locator).match(original))
         return { entry, original };
@@ -98,7 +126,7 @@ export class ContentService {
       { method: 'resources/read', params: { uri: original } },
       input,
     );
-    await this.assertStillGranted(input, entry.id);
+    await this.assertStillGranted(input, entry);
     return scopeResult(entry.connectionId, ReadResourceResultSchema.parse(result));
   }
   async execute(entry: ContentEntry, operation: McpOperation, options: McpRequestOptions) {
@@ -117,8 +145,8 @@ export class ContentService {
       throw new AppError('CONNECTION_STOPPED', '连接已停止，请先启动', 409);
     return this.deps.connections.adapter(entry.ownerId, entry.connectionId);
   }
-  private async assertStillGranted(access: ContentAccess, id: string) {
-    if (!(await this.catalog(access)).some((row) => row.id === id))
+  private async assertStillGranted(access: ContentAccess, entry: ContentEntry) {
+    if (!(await this.catalog(access, entry.connectionId)).some((row) => row.id === entry.id))
       throw new AppError('GRANT_REVOKED', '请求期间权限已撤销', 403);
   }
 }

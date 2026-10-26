@@ -16,6 +16,9 @@ import { skillRoutes } from './modules/skills/routes.js';
 import { artifactRoutes } from './modules/artifacts/routes.js';
 import { importGit } from './modules/skills/gitImporter.js';
 import { previewOwnedImport, applyImport } from './modules/mcp/importService.js';
+import { appRoutes } from './modules/apps/routes.js';
+import { interactionRoutes } from './modules/interactions/routes.js';
+import { openApiRoutes } from './modules/openapi/routes.js';
 import type { Services } from './services.js';
 
 export function createApp(deps: { db: Database; auth: Auth; config: Config; services: Services }) {
@@ -35,7 +38,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
         'X-File-Name',
         'X-Content-SHA256',
       ],
-      allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     }),
   );
   app.onError((error, c) => {
@@ -111,11 +114,18 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     '/api/v1/connections',
     authorizationRoutes({ connections: s.connections, oauth: s.upstreamOAuth, pi: s.pi }),
   );
+  app.route(
+    '/api/v1/connections',
+    authorizationRoutes({ connections: s.connections, oauth: s.upstreamOAuth, pi: s.pi }, true),
+  );
   app.route('/api/v1/tools', toolRoutes(s.profiles, s.invocations));
   app.route('/api/v1/catalog', contentRoutes(s.content));
   app.route('/api/v1/profiles', profileRoutes({ ...s, publicUrl: config.PUBLIC_URL }));
   app.route('/api/v1/skills', skillRoutes(s.skills, importGit));
   app.route('/api/v1/artifacts', artifactRoutes(s.artifacts));
+  app.route('/api/v1', openApiRoutes(s));
+  app.route('/api/v1/interactions', interactionRoutes(s.interactions));
+  app.route('/api/v1/apps', appRoutes(s.apps));
   registerManagement(app, deps);
   return app;
 }
@@ -123,6 +133,7 @@ function registerManagement(
   app: Hono<ApiEnv>,
   { db, services: s }: Parameters<typeof createApp>[0],
 ) {
+  app.route('/api/v1', s.events.routes());
   app.post('/api/v1/import/preview', async (c) =>
     c.json(await previewOwnedImport(s.connections, owner(c), await c.req.json())),
   );

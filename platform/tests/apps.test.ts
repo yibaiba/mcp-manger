@@ -1,0 +1,154 @@
+import { afterAll, beforeAll, expect, test } from 'vitest';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { harness } from './harness.js';
+import { fixtureApp } from './fixtureApp.js';
+import { sandboxApp } from '../apps/server/src/modules/apps/sandbox.js';
+import { scopedUri } from '../apps/server/src/modules/mcp/catalogEntries.js';
+import {
+  withExecution,
+  PLATFORM_CAPABILITIES,
+} from '../apps/server/src/modules/mcp/executionContext.js';
+let h: Awaited<ReturnType<typeof harness>>;
+let upstream: Awaited<ReturnType<typeof fixtureApp>>;
+beforeAll(async () => {
+  h = await harness();
+  upstream = await fixtureApp();
+});
+afterAll(async () => {
+  await h?.close();
+  await upstream?.close();
+});
+async function setup() {
+  const account = await h.signup();
+  const connection = await h.services.connections.create(account.ownerId, {
+    name: 'Apps',
+    adapter: 'direct',
+    transport: 'http',
+    mode: 'existing',
+    url: upstream.url,
+  });
+  const tools = await h.services.connections.discover(account.ownerId, connection.id);
+  const entries = await h.services.content.catalog({ ownerId: account.ownerId });
+  const profile = (await h.services.profiles.save(account.ownerId, {
+    name: 'Apps',
+    toolIds: tools.map((t) => t.id),
+    contentIds: entries.map((e) => e.id),
+  }))!;
+  return { account, connection, tools, profile };
+}
+test('Apps preserve ui URI namespaces and visibility for official external clients without spawning platform views', async () => {
+  const { account, connection, profile, tools } = await setup();
+  const key = await h.services.profiles.issue(account.ownerId, profile.id);
+  const client = new Client(
+    { name: 'App client', version: '1' },
+    { capabilities: PLATFORM_CAPABILITIES },
+  );
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(`${h.baseURL}/mcp/${profile.id}`), {
+      requestInit: { headers: { Authorization: `Bearer ${key.token}` } },
+    }),
+  );
+  try {
+    const catalog = await client.listTools();
+    expect(
+      catalog.tools.find((t) => t.name === tools.find((t) => t.name === 'show')!.id)?._meta,
+    ).toMatchObject({ ui: { resourceUri: scopedUri(connection.id, upstream.uri) } });
+    expect((await client.listResources()).resources[0]?.uri).toMatch(/^ui:\/\//);
+    await client.callTool({ name: tools.find((t) => t.name === 'show')!.id, arguments: {} });
+    expect(h.services.apps.list(account.ownerId)).toHaveLength(0);
+  } finally {
+    await client.close();
+  }
+});
+test('platform App calls use current grants and end on refresh without replaying the original tool', async () => {
+  const { account, connection, profile, tools } = await setup();
+  const execution = {
+    identity: `pi:${profile.id}`,
+    entry: 'pi' as const,
+    taskId: crypto.randomUUID(),
+    profileId: profile.id,
+    sessionId: 'test',
+    capabilities: PLATFORM_CAPABILITIES,
+  };
+  const result = await withExecution(execution, () =>
+    h.services.invocations.call({
+      ownerId: account.ownerId,
+      profileId: profile.id,
+      toolId: tools.find((t) => t.name === 'show')!.id,
+      arguments: {},
+    }),
+  );
+  const id = result._meta!['platform/appSession'] as string;
+  const before = upstream.calls();
+  expect((await h.services.apps.view(account.ownerId, id)).resource.contents[0]?.uri).toBe(
+    scopedUri(connection.id, upstream.uri),
+  );
+  await expect(h.services.apps.view('another-owner', id)).rejects.toThrow(/已结束/);
+  await h.services.apps.call(account.ownerId, id, { name: 'app_action' });
+  expect(upstream.calls()).toBe(before + 1);
+  expect(h.services.apps.list(account.ownerId)).toHaveLength(1);
+  await expect(h.services.apps.call(account.ownerId, id, { name: 'model_only' })).rejects.toThrow(
+    /未授权/,
+  );
+  await h.services.profiles.save(
+    account.ownerId,
+    { name: 'revoked', toolIds: tools.map((t) => t.id), contentIds: [] },
+    profile.id,
+  );
+  await expect(h.services.apps.call(account.ownerId, id, { name: 'app_action' })).rejects.toThrow(
+    /未授权/,
+  );
+  expect(upstream.calls()).toBe(before + 1);
+  h.services.apps.close(account.ownerId, id);
+  await expect(h.services.apps.view(account.ownerId, id)).rejects.toThrow(/已结束/);
+});
+test('sandbox serves separate one-use documents and enforces configured public origin and declared CSP', async () => {
+  const app = sandboxApp(['https://platform.example'], 'https://apps.platform.example');
+  const denied = await app.request('/frames', {
+    method: 'POST',
+    headers: { Origin: 'https://evil.example' },
+    body: JSON.stringify({ html: 'bad' }),
+  });
+  expect(denied.status).toBe(403);
+  const response = await app.request('/frames', {
+    method: 'POST',
+    headers: { Origin: 'https://apps.platform.example', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      html: '<p>actual</p>',
+      csp: { connectDomains: ['https://api.example'] },
+    }),
+  });
+  expect(response.status).toBe(200);
+  const { path } = (await response.json()) as { path: string };
+  const frame = await app.request(path);
+  expect(await frame.text()).toBe('<p>actual</p>');
+  expect(frame.headers.get('Content-Security-Policy')).toContain('connect-src https://api.example');
+  expect(frame.headers.get('Content-Security-Policy')).toContain(
+    'sandbox allow-scripts allow-forms',
+  );
+  expect((await app.request(path)).status).toBe(410);
+  expect((await app.request('/sandbox?parent=https://evil.example')).status).toBe(403);
+  expect(
+    (await app.request('/sandbox?parent=https://platform.example')).headers.get(
+      'Content-Security-Policy',
+    ),
+  ).toContain("script-src 'sha256-");
+});
+test('call event streams expose only the authenticated owner and release their subscription on disconnect', async () => {
+  const account = await h.signup();
+  const response = await account.request('/calls/events');
+  const reader = response.body!.getReader();
+  expect(new TextDecoder().decode((await reader.read()).value)).toContain('event: ready');
+  const next = reader.read();
+  h.services.events.publish({ ownerId: 'someone-else', kind: 'call', id: 'secret' });
+  h.services.events.publish({
+    ownerId: account.ownerId,
+    kind: 'call',
+    id: 'own-call',
+    status: 'waiting',
+  });
+  const received = new TextDecoder().decode((await next).value);
+  expect(received).toContain('own-call');
+  expect(received).not.toContain('secret');
+  await reader.cancel();
+});

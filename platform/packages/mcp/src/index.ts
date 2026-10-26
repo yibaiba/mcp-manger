@@ -1,7 +1,9 @@
 export {
   Client,
+  auth,
   StreamableHTTPClientTransport,
   SSEClientTransport,
+  isInputRequiredResult,
 } from '@modelcontextprotocol/client';
 export { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 export type {
@@ -11,6 +13,7 @@ export type {
   Resource,
   ResourceTemplateType,
   CallToolResult,
+  InputRequiredResult,
   GetPromptResult,
   ReadResourceResult,
   Progress,
@@ -20,3 +23,7 @@ export * from './operations.js';
 export * from './notifications.js';
 export * from './parseCatalog.js';
 export * from './schemaCompatibility.js';
+
+export { ManagedStdioTransport } from './lifecycle/managedStdio.js';
+export { InteractiveClient } from './interactiveClient.js';
+export { toolDispatchFetch } from './toolDispatchFetch.js';

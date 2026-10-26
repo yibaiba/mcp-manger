@@ -19,12 +19,13 @@ export class ConnectionRuntime {
   ) {}
 
   acquire(context: ConnectionContext): ConnectionSlot {
-    const current = this.slots.get(context.id);
+    const key = context.runtimeKey ?? context.id;
+    const current = this.slots.get(key);
     if (current?.ready) return current;
     const slot: ConnectionSlot = {
-      id: context.id,
+      id: key,
       abort: new AbortController(),
-      ready: this.sequence(context.id, () => this.factory(context, slot)).then<
+      ready: this.sequence(key, () => this.factory(context, slot)).then<
         AdapterOutcome,
         AdapterOutcome
       >(
@@ -32,7 +33,7 @@ export class ConnectionRuntime {
         (error: unknown) => ({ error }),
       ),
     };
-    this.slots.set(context.id, slot);
+    this.slots.set(key, slot);
     return slot;
   }
 
@@ -84,6 +85,13 @@ export class ConnectionRuntime {
     } finally {
       if (this.writes.get(id) === pending) this.writes.delete(id);
     }
+  }
+
+  keys(connectionId: string) {
+    return [...this.slots.keys()].filter(
+      (key) =>
+        this.slots.get(key)?.ready && (key === connectionId || key.startsWith(`${connectionId}:`)),
+    );
   }
 
   async shutdown() {

@@ -1,4 +1,11 @@
-import type { Client, Progress, Tool } from '@modelcontextprotocol/client';
+import {
+  isInputRequiredResult,
+  type Client,
+  type Progress,
+  type Tool,
+  type InputRequiredResult,
+  type CallToolResult,
+} from '@modelcontextprotocol/client';
 import { validateToolValue } from './catalog.js';
 type ResourceSubscription = Awaited<ReturnType<Client['listen']>>;
 const subscriptions = new WeakMap<Client, Map<string, ResourceSubscription>>();
@@ -9,7 +16,13 @@ export type McpOperation =
       method: 'resources/read' | 'resources/subscribe' | 'resources/unsubscribe';
       params: { uri: string };
     };
-export type McpRequestOptions = { signal?: AbortSignal; onprogress?: (progress: Progress) => void };
+export type McpRequestOptions = {
+  signal?: AbortSignal;
+  onprogress?: (progress: Progress) => void;
+  requestState?: string;
+  inputResponses?: Record<string, unknown>;
+};
+export type McpToolResult = CallToolResult | InputRequiredResult;
 
 export async function executeOperation(
   client: Client,
@@ -50,10 +63,19 @@ export async function executeTool(
 ) {
   validateToolValue({ tool: input.tool, value: input.arguments, field: 'inputSchema' });
   // Raw spec request avoids callTool's HEADER_MISMATCH recovery replay.
-  const result = await client.request(
-    { method: 'tools/call', params: { name: input.tool.name, arguments: input.arguments } },
-    { signal: input.signal, onprogress: input.onprogress },
-  );
+  const result = (await client.request(
+    {
+      method: 'tools/call',
+      params: {
+        name: input.tool.name,
+        arguments: input.arguments,
+        ...(input.requestState ? { requestState: input.requestState } : {}),
+        ...(input.inputResponses ? { inputResponses: input.inputResponses } : {}),
+      },
+    },
+    { signal: input.signal, onprogress: input.onprogress, allowInputRequired: true, timeout: 0 },
+  )) as McpToolResult;
+  if (isInputRequiredResult(result)) return result;
   if (!result.isError && input.tool.outputSchema) {
     validateToolValue({ tool: input.tool, value: result.structuredContent, field: 'outputSchema' });
   }

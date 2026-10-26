@@ -5,11 +5,13 @@ export function CheckChoice({
   name,
   value,
   defaultChecked,
+  disabled,
   children,
 }: {
   name: string;
   value: string;
   defaultChecked?: boolean;
+  disabled?: boolean;
   children: ReactNode;
 }) {
   const id = useId();
@@ -21,6 +23,7 @@ export function CheckChoice({
         name={name}
         value={value}
         defaultChecked={defaultChecked}
+        disabled={disabled}
       />
       <Label id={`${id}-label`} htmlFor={id} className="cursor-pointer font-normal">
         {children}

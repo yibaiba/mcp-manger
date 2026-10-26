@@ -3,11 +3,16 @@ import { Hono } from 'hono';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-export async function fixtureMcp(options: { beforeList?: () => Promise<void> } = {}) {
+export async function fixtureMcp(
+  options: { beforeList?: () => Promise<void>; instructions?: string } = {},
+) {
   const app = new Hono();
+  const sessions = new Set<Server>();
   let count = 0;
   app.all('/mcp', async (c) => {
     const server = createFixtureMcpServer(() => count++, options);
+    sessions.add(server);
+    server.onclose = () => sessions.delete(server);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -22,20 +27,22 @@ export async function fixtureMcp(options: { beforeList?: () => Promise<void> } =
   return {
     url: `http://127.0.0.1:${address.port}/mcp`,
     count: () => count,
-    close: () =>
-      new Promise<void>((resolve, reject) =>
+    close: async () => {
+      await Promise.all([...sessions].map((session) => session.close()));
+      await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
-      ),
+      );
+    },
   };
 }
 
 export function createFixtureMcpServer(
   onCall: () => void,
-  options: { beforeList?: () => Promise<void> } = {},
+  options: { beforeList?: () => Promise<void>; instructions?: string } = {},
 ) {
   const server = new Server(
     { name: 'integration-fixture', version: '1' },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, instructions: options.instructions },
   );
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     await options.beforeList?.();

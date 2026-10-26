@@ -22,6 +22,20 @@
       "when": 1793016843927,
       "tag": "0002_broad_silver_samurai",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793019875588,
+      "tag": "0003_polite_shatterstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793020708865,
+      "tag": "0004_overjoyed_dragon_man",
+      "breakpoints": true
     }
   ]
 }

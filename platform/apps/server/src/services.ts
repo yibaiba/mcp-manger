@@ -1,3 +1,11 @@
+import { createOpenApiAdapter } from './modules/openapi/adapter.js';
+import { ApiCredentialStore } from './modules/openapi/credentialStore.js';
+import { ApiOAuthService } from './modules/openapi/oauthService.js';
+import { currentExecution } from './modules/mcp/executionContext.js';
+import { AppError } from './shared/errors.js';
+import { RuntimeEvents } from './shared/runtimeEvents.js';
+import { InteractionService } from './modules/interactions/interactionService.js';
+import { AppSessionService } from './modules/apps/appSessionService.js';
 import { resolve } from 'node:path';
 import type { Database } from '@platform/db';
 import type { Config } from './config.js';
@@ -8,6 +16,7 @@ import { ConnectionService } from './modules/mcp/connectionService.js';
 import { createDirectAdapter } from './modules/mcp/directAdapter.js';
 import { createDeviceAdapter } from './modules/mcp/deviceAdapter.js';
 import { UpstreamOAuth } from './modules/authorizations/upstreamOAuth.js';
+import { deviceAuthFetch } from './modules/authorizations/deviceAuthFetch.js';
 import { AgentOAuth } from './modules/authorizations/agentOAuth.js';
 import { ProfileService } from './modules/agent-profiles/profileService.js';
 import { InvocationService } from './modules/mcp/invocationService.js';
@@ -19,26 +28,84 @@ import { ArtifactService } from './modules/artifacts/artifactService.js';
 import { PiService } from './modules/pi-runtime/piService.js';
 export function createServices(db: Database, config: Config) {
   const vault = new Vault(config.ENCRYPTION_KEY);
+  const events = new RuntimeEvents();
   const broker = new DeviceBroker((id, message) => reportDevice(db, id, message));
   const devices = new DeviceService(db, broker);
-  const upstreamOAuth = new UpstreamOAuth({ db, vault, publicUrl: config.PUBLIC_URL, fetch });
-  const profiles = new ProfileService(db);
+  const upstreamOAuth = new UpstreamOAuth({
+    db,
+    vault,
+    publicUrl: config.PUBLIC_URL,
+    fetch,
+    fetchFor: (context) =>
+      context.config.adapter === 'device' ? deviceAuthFetch(context, broker) : fetch,
+  });
+  const apiOAuth = new ApiOAuthService({
+    store: new ApiCredentialStore({ db, vault }),
+    fetch,
+    publicUrl: config.PUBLIC_URL,
+  });
   const connections: ConnectionService = new ConnectionService({
     db,
     vault,
     devices,
     publicUrl: config.PUBLIC_URL,
     factory: async (context) => {
-      if (context.config.adapter === 'device') return createDeviceAdapter(context, broker);
+      if (context.config.source === 'openapi')
+        return createOpenApiAdapter(context, {
+          fetch,
+          artifacts,
+          oauth: apiOAuth,
+          authorizeArtifact: async (id) => {
+            const profileId = currentExecution()?.profileId;
+            if (
+              profileId &&
+              !(await profiles.owned(context.ownerId, profileId)).artifactIds.includes(id)
+            )
+              throw new AppError('ARTIFACT_FORBIDDEN', '此产物未授权给当前 Agent', 403);
+          },
+        });
+      if (context.config.adapter === 'device')
+        return createDeviceAdapter(context, broker, async (): Promise<Record<string, string>> => {
+          return upstreamOAuth.headers(context);
+        });
       if (context.config.adapter === 'pi') return pi.bridge(context);
       return createDirectAdapter(context, upstreamOAuth.provider(context), {
+        fetch: upstreamOAuth.fetchFor(context),
+        beforeCall: () => upstreamOAuth.headers(context),
         logStderr: (message) => console.error('MCP stderr', context.id, message),
       });
     },
   });
-  const invocations: InvocationService = new InvocationService({ db, profiles, connections });
+  const profiles = new ProfileService(db, connections);
+  const interactions = new InteractionService({ db, vault });
+  const invocations: InvocationService = new InvocationService({
+    db,
+    profiles,
+    connections,
+    interactions,
+    events,
+    onResult: (input) => apps.capture(input),
+  });
   const content = new ContentService({ db, profiles, connections });
-  const gateway = new Gateway({ profiles, invocations, content, connections });
+  const sandboxOrigin =
+    config.APPS_ORIGIN ??
+    (new URL(config.PUBLIC_URL).hostname === 'localhost'
+      ? 'http://localhost:4302'
+      : `${new URL(config.PUBLIC_URL).protocol}//apps.${new URL(config.PUBLIC_URL).hostname}`);
+  if (
+    new URL(sandboxOrigin).origin === new URL(config.PUBLIC_URL).origin ||
+    new URL(sandboxOrigin).origin === new URL(config.WEB_ORIGIN).origin
+  )
+    throw new Error('APPS_ORIGIN 必须与平台使用不同源');
+  const apps = new AppSessionService({
+    connections,
+    content,
+    profiles,
+    invoke: (input) => invocations.call(input),
+    send: (ownerId, input) => pi.start(ownerId, input),
+    sandboxOrigin,
+  });
+  const gateway = new Gateway({ profiles, invocations, content, connections, interactions });
   const skills = new SkillService({ db, broker, devices, profiles });
   const artifacts = new ArtifactService({
     db,
@@ -48,10 +115,23 @@ export function createServices(db: Database, config: Config) {
     publicUrl: config.PUBLIC_URL,
   });
   const agentOAuth = new AgentOAuth({ db, profiles, publicUrl: config.PUBLIC_URL });
-  const pi: PiService = new PiService({ db, config, profiles, invocations, skills, content });
+  const pi: PiService = new PiService({
+    db,
+    config,
+    profiles,
+    invocations,
+    skills,
+    content,
+    events,
+  });
   return {
     broker,
+    events,
     devices,
+    apiOAuth,
+    interactions,
+    apps,
+    sandboxOrigin,
     connections,
     upstreamOAuth,
     profiles,

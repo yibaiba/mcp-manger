@@ -183,6 +183,7 @@ test('only built-in inference tasks require model configuration', async () => {
   const pi = new PiService({
     db: h.db,
     config: { ...h.config, PI_ENABLED: 'true' },
+    events: h.services.events,
     profiles: h.services.profiles,
     invocations: h.services.invocations,
     skills: h.services.skills,

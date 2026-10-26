@@ -1,3 +1,4 @@
+import { currentExecution } from './executionContext.js';
 import type { ContentAccess, ContentService } from './contentService.js';
 
 type Subscription = {
@@ -17,7 +18,7 @@ export class ResourceSubscriptions {
     active?: () => boolean;
   }) {
     const { entry, original } = await this.content.resolveResource(input.access, input.uri);
-    const key = `${entry.connectionId}:${original}`;
+    const key = `${entry.connectionId}:${currentExecution()?.identity ?? 'default'}:${currentExecution()?.sessionId ?? 'dashboard'}:${original}`;
     await this.sequence(key, async () => {
       input.signal?.throwIfAborted();
       if (input.active && !input.active()) throw new Error('订阅入口已关闭');

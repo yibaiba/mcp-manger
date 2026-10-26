@@ -33,9 +33,37 @@ const requested = process.argv.slice(2);
 const groups = requested.length
   ? [requested]
   : [
-      ['--exclude', 'tests/pi.test.ts', '--exclude', 'tests/catalog*.test.ts'],
+      [
+        '--exclude',
+        'tests/pi.test.ts',
+        '--exclude',
+        'tests/catalog*.test.ts',
+        '--exclude',
+        'tests/apps.test.ts',
+        '--exclude',
+        'tests/*Interactions.test.ts',
+        '--exclude',
+        'tests/interactions.test.ts',
+        '--exclude',
+        'tests/openapi.test.ts',
+        '--exclude',
+        'tests/sessionIsolation.test.ts',
+        '--exclude',
+        'tests/lifecycle.test.ts',
+        '--exclude',
+        'tests/upstreamOAuth.test.ts',
+      ],
       ['tests/pi.test.ts'],
+      ['tests/upstreamOAuth.test.ts'],
       ['tests/catalog.test.ts', 'tests/catalogAdapters.test.ts'],
+      [
+        'tests/apps.test.ts',
+        'tests/interactions.test.ts',
+        'tests/legacyInteractions.test.ts',
+        'tests/openapi.test.ts',
+        'tests/sessionIsolation.test.ts',
+        'tests/lifecycle.test.ts',
+      ],
     ];
 for (const [index, args] of groups.entries()) {
   console.log(`Backend test group ${index + 1}/${groups.length}: ${args.join(' ')}`);

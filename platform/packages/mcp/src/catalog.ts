@@ -13,6 +13,8 @@ export type McpCatalog = {
   resources: Resource[];
   templates: ResourceTemplateType[];
   protocolVersion?: string;
+  serverInfo?: Record<string, unknown>;
+  instructions?: string;
   capabilities: Record<string, unknown>;
 };
 const validator = new AjvJsonSchemaValidator();
@@ -103,6 +105,8 @@ export async function discoverCatalog(client: Client, signal?: AbortSignal): Pro
     resources,
     templates,
     capabilities,
+    serverInfo: client.getServerVersion(),
+    instructions: client.getInstructions(),
     protocolVersion: client.getNegotiatedProtocolVersion(),
   };
 }

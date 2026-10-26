@@ -1,3 +1,4 @@
+import { withExecution } from '../mcp/executionContext.js';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { eq, and, desc } from 'drizzle-orm';
@@ -10,7 +11,13 @@ import type { InvocationService } from '../mcp/invocationService.js';
 import type { SkillService } from '../skills/skillService.js';
 import type { ContentService } from '../mcp/contentService.js';
 import { contentToolset } from './contentTools.js';
-import { parseCatalog, type McpRequestOptions, type McpOperation } from '@platform/mcp';
+import type { RuntimeEvents } from '../../shared/runtimeEvents.js';
+import {
+  isInputRequiredResult,
+  parseCatalog,
+  type McpRequestOptions,
+  type McpOperation,
+} from '@platform/mcp';
 import { CallToolResultSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
 export interface PiBridge extends ConnectionAdapter {
   action(input: Record<string, unknown>): Promise<unknown>;
@@ -31,6 +38,7 @@ export class PiService {
       invocations: InvocationService;
       skills: SkillService;
       content: ContentService;
+      events: RuntimeEvents;
     },
   ) {}
   private load() {
@@ -38,12 +46,18 @@ export class PiService {
     return this.runtime;
   }
   async bridge(context: ConnectionContext) {
-    let bridge = this.bridges.get(context.id);
+    let bridge = this.bridges.get(context.runtimeKey ?? context.id);
     if (!bridge) {
       bridge = this.load().then(async (runtime) => {
         const adapter = await runtime.bridge({
           context,
-          directory: resolve(this.deps.config.DATA_DIR, 'pi', context.ownerId, context.id),
+          authorizationKey: this.deps.config.PI_MCP_ADAPTER_OAUTH_FILE_KEY,
+          directory: resolve(
+            this.deps.config.DATA_DIR,
+            'pi',
+            context.ownerId,
+            context.bindingId ?? context.id,
+          ),
         });
         return {
           status: () => adapter.status(),
@@ -53,16 +67,20 @@ export class PiService {
           request: (operation: McpOperation, options?: McpRequestOptions) =>
             adapter.request(operation, options),
           watch: adapter.watch,
+          check: adapter.check,
           call: async (input: Parameters<ConnectionAdapter['call']>[0]) =>
-            CallToolResultSchema.parse(await adapter.call(input)),
+            (async () => {
+              const result = await adapter.call(input);
+              return isInputRequiredResult(result) ? result : CallToolResultSchema.parse(result);
+            })(),
           action: (input: Record<string, unknown>) => adapter.action(input),
           close: async () => {
-            this.bridges.delete(context.id);
+            this.bridges.delete(context.runtimeKey ?? context.id);
             await adapter.close();
           },
         };
       });
-      this.bridges.set(context.id, bridge);
+      this.bridges.set(context.runtimeKey ?? context.id, bridge);
     }
     return bridge;
   }
@@ -89,7 +107,24 @@ export class PiService {
     const id = randomUUID();
     const abort = new AbortController();
     await this.deps.db.insert(tasks).values({ id, ownerId, ...input, status: 'running' });
-    const done = this.run(id, ownerId, { ...input, abort });
+    this.deps.events.publish({ ownerId, kind: 'task', id, status: 'running' });
+    const done = withExecution(
+      {
+        identity: `pi:${input.profileId}`,
+        signal: abort.signal,
+        profileId: input.profileId,
+        taskId: id,
+        entry: 'pi',
+        sessionId: id,
+        capabilities: {
+          elicitation: { form: {}, url: {} },
+          extensions: {
+            'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
+          },
+        },
+      },
+      () => this.run(id, ownerId, { ...input, abort }),
+    );
     this.running.set(id, { ownerId, profileId: input.profileId, abort, done });
     void done.finally(() => this.running.delete(id));
     return { id };
@@ -116,11 +151,18 @@ export class PiService {
         provider: this.deps.config.PI_MODEL_PROVIDER!,
         model: this.deps.config.PI_MODEL_ID!,
         prompt: input.prompt,
+        instructions: await this.deps.profiles.instructions(ownerId, input.profileId),
         tools: [
           ...content.tools,
-          ...catalog.map(
-            (t) => ({ ...t.definition, name: t.id, inputSchema: t.definition.inputSchema }) as Tool,
-          ),
+          ...catalog
+            .filter((t) => {
+              const ui = (t.definition._meta as { ui?: { visibility?: string[] } } | undefined)?.ui;
+              return !ui?.visibility || ui.visibility.includes('model');
+            })
+            .map(
+              (t) =>
+                ({ ...t.definition, name: t.id, inputSchema: t.definition.inputSchema }) as Tool,
+            ),
         ],
         skills,
         signal: input.abort.signal,
@@ -136,12 +178,19 @@ export class PiService {
               }),
         onText: (text) => {
           output += text;
+          this.deps.events.publish({ ownerId, kind: 'task', id, text });
         },
       });
       await this.deps.db
         .update(tasks)
         .set({ status: input.abort.signal.aborted ? 'cancelled' : 'succeeded', output })
         .where(eq(tasks.id, id));
+      this.deps.events.publish({
+        ownerId,
+        kind: 'task',
+        id,
+        status: input.abort.signal.aborted ? 'cancelled' : 'succeeded',
+      });
     } catch (error) {
       await this.deps.db
         .update(tasks)
@@ -151,6 +200,13 @@ export class PiService {
           error: errorMessage(error),
         })
         .where(eq(tasks.id, id));
+      this.deps.events.publish({
+        ownerId,
+        kind: 'task',
+        id,
+        status: input.abort.signal.aborted ? 'cancelled' : 'failed',
+        error: errorMessage(error),
+      });
     }
   }
   async cancel(ownerId: string, id: string) {

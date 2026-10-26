@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream, openAsBlob } from 'node:fs';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable, Transform } from 'node:stream';
@@ -9,14 +9,15 @@ export interface FileStore {
   write(input: {
     id: string;
     body: ReadableStream<Uint8Array>;
-    sha256: string;
+    sha256?: string;
   }): Promise<{ size: number; sha256: string }>;
+  blob(id: string): Promise<Blob>;
   read(id: string): ReadableStream<Uint8Array>;
   remove(id: string): Promise<void>;
 }
 export class DiskFileStore implements FileStore {
   constructor(private readonly directory: string) {}
-  async write(input: { id: string; body: ReadableStream<Uint8Array>; sha256: string }) {
+  async write(input: { id: string; body: ReadableStream<Uint8Array>; sha256?: string }) {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const temporary = join(this.directory, `${input.id}.${randomUUID()}.tmp`);
     const hash = createHash('sha256');
@@ -35,13 +36,17 @@ export class DiskFileStore implements FileStore {
         createWriteStream(temporary, { flags: 'wx', mode: 0o600 }),
       );
       const sha256 = hash.digest('hex');
-      if (sha256 !== input.sha256) throw new AppError('CHECKSUM_MISMATCH', '文件 SHA-256 校验失败');
+      if (input.sha256 !== undefined && sha256 !== input.sha256)
+        throw new AppError('CHECKSUM_MISMATCH', '文件 SHA-256 校验失败');
       await rename(temporary, join(this.directory, input.id));
       return { size, sha256 };
     } catch (error) {
       await rm(temporary, { force: true });
       throw error;
     }
+  }
+  blob(id: string) {
+    return openAsBlob(join(this.directory, id));
   }
   read(id: string) {
     return Readable.toWeb(createReadStream(join(this.directory, id))) as ReadableStream<Uint8Array>;

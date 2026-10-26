@@ -1,26 +1,40 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { connections, tools, mcpEntries, type Database } from '@platform/db';
+import { connections, type Database } from '@platform/db';
 import { connectionInput, type ConnectionInput } from '@platform/contracts';
-import type { McpCatalog, McpNotification } from '@platform/mcp';
+import type { McpNotification } from '@platform/mcp';
 import { digest, type Vault } from '../../shared/crypto.js';
 import { AppError, requireValue } from '../../shared/errors.js';
 import { redactConnectionError } from './connectionDiagnostics.js';
 import type { DeviceService } from '../devices/deviceService.js';
 import type { AdapterFactory, ConnectionContext } from './adapter.js';
 import { ConnectionRuntime } from './connectionRuntime.js';
-import { catalogEntries } from './catalogEntries.js';
+import { SessionLifecycle } from './lifecycle/sessionLifecycle.js';
+import { BindingService } from '../authorizations/bindingService.js';
+import { currentExecution, sessionScope, PLATFORM_CAPABILITIES } from './executionContext.js';
+import { CatalogRepository, toolId } from './catalogRepository.js';
+import { compileDocument } from '../openapi/compile.js';
+import type { ApiDocument } from '../openapi/types.js';
+import { validateOpenApiDocument } from '../openapi/importService.js';
 export type ConnectionEvent = {
   ownerId: string;
   connectionId: string;
   notification: McpNotification;
+  sessionId?: string;
+  identity?: string;
 };
-export const toolId = (connectionId: string, name: string) =>
-  `t_${digest(`${connectionId}:${name}`)}`;
+export { toolId } from './catalogRepository.js';
 export class ConnectionService {
+  private readonly lifecycle: SessionLifecycle;
+  private readonly catalogs: CatalogRepository;
+  readonly bindings: BindingService;
   private readonly runtime: ConnectionRuntime;
   private readonly listeners = new Set<(event: ConnectionEvent) => Promise<void>>();
-  private readonly closingListeners = new Set<(connectionId: string) => Promise<void>>();
+  private readonly closingListeners = new Set<(context: ConnectionContext) => Promise<void>>();
+  private readonly waking = new Map<
+    string,
+    Promise<Awaited<ReturnType<ConnectionService['discover']>>>
+  >();
   private readonly notifications = new Map<string, Promise<void>>();
   constructor(
     private readonly deps: {
@@ -31,8 +45,27 @@ export class ConnectionService {
       publicUrl: string;
     },
   ) {
+    this.bindings = new BindingService(deps);
+    this.catalogs = new CatalogRepository(deps.db, this.bindings);
+    this.lifecycle = new SessionLifecycle({
+      sleep: async (context) => {
+        await this.runtime.invalidate(context.runtimeKey!).closed;
+      },
+      error: async (context, error) => {
+        if ((await this.owned(context.ownerId, context.id)).status === 'stopped') return;
+        await deps.db
+          .update(connections)
+          .set({ status: 'error', error: this.redact(error, context.config) })
+          .where(eq(connections.id, context.id));
+      },
+      recover: async (context) => {
+        if ((await this.owned(context.ownerId, context.id)).status === 'stopped')
+          throw new AppError('CONNECTION_STOPPED', '手动停止的连接不能自动恢复', 409);
+        return deps.factory(context);
+      },
+    });
     this.runtime = new ConnectionRuntime(async (context, slot) => {
-      const adapter = await deps.factory(context);
+      const adapter = this.lifecycle.wrap(context, await deps.factory(context));
       const current = () => this.runtime.current(slot) && !slot.abort.signal.aborted;
       const unwatch = adapter.watch((notification) =>
         this.receive({ context, notification, current }),
@@ -43,7 +76,7 @@ export class ConnectionService {
         close: async () => {
           unwatch();
           try {
-            for (const listener of this.closingListeners) await listener(context.id);
+            for (const listener of this.closingListeners) await listener(context);
           } finally {
             await close();
           }
@@ -55,7 +88,7 @@ export class ConnectionService {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-  watchClosing(listener: (connectionId: string) => Promise<void>) {
+  watchClosing(listener: (context: ConnectionContext) => Promise<void>) {
     this.closingListeners.add(listener);
     return () => this.closingListeners.delete(listener);
   }
@@ -72,11 +105,16 @@ export class ConnectionService {
     const pending = previous
       .then(async () => {
         if (!current()) return;
-        if (notification.method.endsWith('/list_changed'))
-          await this.discover(context.ownerId, context.id);
+        if (notification.method.endsWith('/list_changed')) await this.discoverContext(context);
         if (!current()) return;
         for (const listener of this.listeners)
-          await listener({ ownerId: context.ownerId, connectionId: context.id, notification });
+          await listener({
+            ownerId: context.ownerId,
+            connectionId: context.id,
+            notification,
+            sessionId: context.sessionId,
+            identity: context.identity,
+          });
       })
       .catch(async (error: unknown) => {
         if (!current()) return;
@@ -102,6 +140,25 @@ export class ConnectionService {
   }
   async validate(ownerId: string, input: unknown) {
     const config = connectionInput.parse(input);
+    if (config.source === 'openapi' && config.openapi) {
+      if (config.health.enabled)
+        throw new AppError('CHECK_UNSUPPORTED', 'OpenAPI 来源不提供 MCP 健康检查，请关闭该选项');
+      await validateOpenApiDocument(config.openapi.document);
+      const published = compileDocument(config.openapi.document as ApiDocument).filter((op) =>
+        config.openapi!.operations.includes(op.key),
+      );
+      if (
+        published.length !== new Set(config.openapi.operations).size ||
+        published.some((op) => op.unsupported.length)
+      )
+        throw new AppError(
+          'OPENAPI_OPERATIONS',
+          published
+            .filter((op) => op.unsupported.length)
+            .map((op) => `${op.key}: ${op.unsupported.join('; ')}`)
+            .join('\n') || '发布的操作不存在',
+        );
+    }
     if (config.deviceId) await this.deps.devices.owned(ownerId, config.deviceId);
     if (
       config.url &&
@@ -140,12 +197,26 @@ export class ConnectionService {
   }
   async context(ownerId: string, id: string): Promise<ConnectionContext> {
     const row = await this.owned(ownerId, id);
+    const config = connectionInput.parse(
+      this.deps.vault.open<ConnectionInput>(row.config, `${ownerId}:${id}`),
+    );
+    const scope = sessionScope(config);
+    const binding = await this.bindings.resolve({
+      ownerId,
+      connectionId: id,
+      identity: scope.identity,
+    });
     return {
       id,
       ownerId,
-      config: connectionInput.parse(
-        this.deps.vault.open<ConnectionInput>(row.config, `${ownerId}:${id}`),
-      ),
+      bindingId: binding.id,
+      identity: scope.identity,
+      sessionId: scope.session,
+      capabilityKey: scope.capabilityKey,
+      runtimeKey: `${id}:${binding.id}:${scope.capabilityKey}:${digest(scope.session)}:${scope.headerKey}`,
+      capabilities: currentExecution()?.capabilities ?? PLATFORM_CAPABILITIES,
+      correlationId: currentExecution()?.correlationId,
+      config: { ...config, headers: { ...config.headers, ...scope.headers } },
     };
   }
   async list(ownerId: string) {
@@ -156,16 +227,31 @@ export class ConnectionService {
     return Promise.all(
       rows.map(async ({ config, ...row }) => {
         const value = this.deps.vault.open<ConnectionInput>(config, `${ownerId}:${row.id}`);
-        const status = row.status === 'connected' ? await this.runtime.status(row.id) : row.status;
+        const status =
+          row.status === 'connected'
+            ? await this.runtime.status((await this.context(ownerId, row.id)).runtimeKey!)
+            : row.status;
         return {
           ...row,
           status,
           transport: value.transport,
+          source: value.source ?? 'mcp',
+          identityMode: value.identityMode ?? 'shared',
+          lifecycle: value.lifecycle,
+          health: value.health,
+          forwardHeaders: value.forwardHeaders ?? [],
+          sessions: this.runtime.keys(row.id),
           mode: value.mode,
           url: value.url ? new URL(value.url).origin + new URL(value.url).pathname : undefined,
         };
       }),
     );
+  }
+  async lease(ownerId: string, id: string) {
+    const context = await this.context(ownerId, id);
+    await this.adapter(ownerId, id);
+    const slot = this.runtime.acquire(context);
+    return { signal: slot.abort.signal, release: this.lifecycle.hold(slot.id) };
   }
   async adapter(ownerId: string, id: string) {
     const context = await this.context(ownerId, id);
@@ -177,12 +263,15 @@ export class ConnectionService {
         throw new AppError('CONNECTION_SUPERSEDED', '连接已停止或被替换', 409);
       return adapter;
     } catch (error) {
-      if (this.runtime.current(slot)) await this.runtime.invalidate(id).closed;
+      if (this.runtime.current(slot)) await this.runtime.invalidate(slot.id).closed;
       throw error;
     }
   }
   async discover(ownerId: string, id: string, signal?: AbortSignal) {
-    const context = await this.context(ownerId, id);
+    return this.discoverContext(await this.context(ownerId, id), signal);
+  }
+  private async discoverContext(context: ConnectionContext, signal?: AbortSignal) {
+    const { ownerId, id } = context;
     if (context.config.deviceId) await this.deps.devices.owned(ownerId, context.config.deviceId);
     const slot = this.runtime.acquire(context);
     try {
@@ -191,7 +280,7 @@ export class ConnectionService {
       combined.throwIfAborted();
       const catalog = await adapter.catalog(combined);
       const discovered = catalog.tools;
-      const saved = await this.runtime.write(slot, () => this.saveCatalog(context, catalog));
+      const saved = await this.runtime.write(slot, () => this.catalogs.save(context, catalog));
       if (!saved)
         throw new AppError('CONNECTION_SUPERSEDED', '连接已停止或被替换，旧发现结果未保存', 409);
       return discovered.map((tool) => ({ ...tool, id: toolId(id, tool.name) }));
@@ -200,7 +289,7 @@ export class ConnectionService {
         throw new AppError('DISCOVERY_CANCELLED', this.redact(error, context.config), 409);
       if (!this.runtime.current(slot))
         throw new AppError('CONNECTION_SUPERSEDED', '连接已停止或被替换，旧发现请求已结束', 409);
-      const { next, closed } = this.runtime.invalidate(id);
+      const { next, closed } = this.runtime.invalidate(slot.id);
       const message = this.redact(error, context.config);
       await this.runtime.write(next, () =>
         this.deps.db
@@ -220,64 +309,98 @@ export class ConnectionService {
       throw new AppError('CONNECTION_FAILED', message, 502);
     }
   }
-  private async saveCatalog(context: ConnectionContext, catalog: McpCatalog) {
-    await this.deps.db.transaction(async (tx) => {
-      await tx.update(tools).set({ available: false }).where(eq(tools.connectionId, context.id));
-      for (const tool of catalog.tools) {
-        const row = {
-          id: toolId(context.id, tool.name),
-          ownerId: context.ownerId,
-          connectionId: context.id,
-          name: tool.name,
-          definition: tool,
-          available: true,
-        };
-        await tx
-          .insert(tools)
-          .values(row)
-          .onConflictDoUpdate({ target: tools.id, set: { definition: tool, available: true } });
-      }
-      await tx
-        .update(mcpEntries)
-        .set({ available: false })
-        .where(eq(mcpEntries.connectionId, context.id));
-      for (const row of catalogEntries(context, catalog)) {
-        await tx
-          .insert(mcpEntries)
-          .values(row)
-          .onConflictDoUpdate({
-            target: mcpEntries.id,
-            set: { definition: row.definition, name: row.name, available: true },
-          });
-      }
-      await tx
-        .update(connections)
-        .set({
-          status: 'connected',
-          error: null,
-          protocolVersion: catalog.protocolVersion,
-          capabilities: catalog.capabilities,
-        })
-        .where(eq(connections.id, context.id));
-    });
+  async snapshot(ownerId: string, id: string) {
+    return this.bindings.snapshot(await this.context(ownerId, id));
+  }
+  async catalogForAccess(ownerId: string, id: string) {
+    const context = await this.context(ownerId, id);
+    const snapshot = await this.bindings.snapshot(context);
+    const row = await this.owned(ownerId, id);
+    if (row.status === 'stopped') return snapshot;
+    if (snapshot && (context.config.lifecycle.startup === 'on-demand' || row.status === 'sleeping'))
+      return snapshot;
+    if (snapshot && (await this.runtime.status(context.runtimeKey!)) === 'connected')
+      return snapshot;
+    await this.wake(ownerId, id);
+    return this.bindings.snapshot(context);
   }
   redact(error: unknown, config: ConnectionInput) {
     return redactConnectionError(error, config);
   }
   async close(ownerId: string, id: string) {
     await this.owned(ownerId, id);
-    await this.runtime.invalidate(id).closed;
+    for (const key of this.runtime.keys(id)) await this.runtime.invalidate(key).closed;
+  }
+  async closeBinding(context: ConnectionContext) {
+    for (const key of this.runtime.keys(context.id))
+      if (key.startsWith(`${context.id}:${context.bindingId}:`))
+        await this.runtime.invalidate(key).closed;
+  }
+  async update(ownerId: string, id: string, input: unknown) {
+    const row = await this.owned(ownerId, id);
+    const old = this.deps.vault.open<ConnectionInput>(row.config, `${ownerId}:${id}`);
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+      throw new AppError('VALIDATION', '连接更新必须是对象');
+    const config = await this.validate(ownerId, { ...old, ...input });
+    await this.close(ownerId, id);
+    await this.deps.db
+      .update(connections)
+      .set({
+        name: config.name,
+        adapter: config.adapter,
+        deviceId: config.deviceId ?? null,
+        config: this.deps.vault.seal(config, `${ownerId}:${id}`),
+        status: 'disconnected',
+        error: null,
+      })
+      .where(eq(connections.id, id));
+    return { id };
+  }
+  async wake(ownerId: string, id: string) {
+    const context = await this.context(ownerId, id);
+    const key = context.runtimeKey!;
+    const previous = this.waking.get(key);
+    if (previous) return previous;
+    const waking = this.discoverContext(context);
+    this.waking.set(key, waking);
+    try {
+      return await waking;
+    } finally {
+      if (this.waking.get(key) === waking) this.waking.delete(key);
+    }
+  }
+  async sleep(ownerId: string, id: string) {
+    await this.owned(ownerId, id);
+    if (this.lifecycle.busy(id))
+      throw new AppError('CONNECTION_BUSY', '连接有执行、交互或订阅租约，无法休眠', 409);
+    await this.close(ownerId, id);
+    await this.deps.db
+      .update(connections)
+      .set({ status: 'sleeping' })
+      .where(eq(connections.id, id));
+  }
+  async check(ownerId: string, id: string) {
+    if ((await this.owned(ownerId, id)).status === 'stopped')
+      throw new AppError('CONNECTION_STOPPED', '连接已停止，请先唤醒', 409);
+    const context = await this.context(ownerId, id);
+    if (context.config.source === 'openapi')
+      throw new AppError(
+        'CHECK_UNSUPPORTED',
+        'OpenAPI 来源不提供 MCP ping 或 server/discover 健康检查',
+        409,
+      );
+    const adapter = await this.adapter(ownerId, id);
+    if (!adapter.check)
+      throw new AppError('CHECK_UNSUPPORTED', '连接器需要升级以支持健康检查', 409);
+    await adapter.check(AbortSignal.timeout(context.config.health.timeoutMs));
+    return { healthy: true, checkedAt: new Date().toISOString() };
   }
   async stop(ownerId: string, id: string) {
-    await this.owned(ownerId, id);
-    const { next, closed } = this.runtime.invalidate(id);
-    await closed;
-    await this.runtime.write(next, () =>
-      this.deps.db
-        .update(connections)
-        .set({ status: 'stopped', error: null })
-        .where(eq(connections.id, id)),
-    );
+    await this.close(ownerId, id);
+    await this.deps.db
+      .update(connections)
+      .set({ status: 'stopped', error: null })
+      .where(eq(connections.id, id));
   }
   async shutdown() {
     await this.runtime.shutdown();

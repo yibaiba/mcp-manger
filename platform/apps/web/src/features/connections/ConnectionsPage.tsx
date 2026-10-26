@@ -1,3 +1,5 @@
+import { ConnectionSettings } from './ConnectionSettings.js';
+import { OpenApiPanel } from './OpenApiPanel.js';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plug, Plus } from 'lucide-react';
@@ -15,8 +17,10 @@ import { api, type Connection, type Device } from '../../lib/api.js';
 import { Action, Code, Empty, Feedback, Status } from '../../components/shared/Controls.js';
 import { ConnectionForm } from './ConnectionForm.js';
 import { ImportPanel } from './ImportPanel.js';
+import { AuthorizationBindings } from './AuthorizationBindings.js';
 
 export default function ConnectionsPage() {
+  const [editing, setEditing] = useState<Connection>();
   const [show, setShow] = useState(false);
   const [result, setResult] = useState<unknown>();
   const connections = useQuery({
@@ -66,6 +70,7 @@ export default function ConnectionsPage() {
                 <div className="grow">
                   <strong>{connection.name}</strong>
                   <small>
+                    {connection.source === 'openapi' ? 'OpenAPI · ' : ''}
                     {connection.adapter} · {connection.transport} · {connection.mode}{' '}
                     {connection.transport === 'stdio'
                       ? `· ${connection.adapter === 'device' ? '所选设备执行' : '平台主机执行'} `
@@ -76,8 +81,43 @@ export default function ConnectionsPage() {
                 </div>
                 <Status value={connection.status} />
               </div>
+              <small>
+                授权：{connection.identityMode === 'independent' ? '独立身份' : '连接账号'} ·
+                活跃会话：{connection.sessions?.length ?? 0}
+              </small>
               {connection.error ? <div className="error">{connection.error}</div> : null}
               <div className="row-actions">
+                <Button variant="outline" onClick={() => setEditing(connection)}>
+                  编辑
+                </Button>
+                {(
+                  [
+                    ['wake', '唤醒'],
+                    ['sleep', '休眠'],
+                    ['check', '健康检查'],
+                  ] as const
+                ).map(([operation, label]) => (
+                  <Action
+                    key={operation}
+                    action={async () =>
+                      setResult(
+                        await api(`/connections/${connection.id}/${operation}`, { method: 'POST' }),
+                      )
+                    }
+                  >
+                    {label}
+                  </Action>
+                ))}
+                <Action
+                  action={async () =>
+                    setResult({
+                      sessions: connection.sessions,
+                      bindings: await api(`/connections/${connection.id}/bindings`),
+                    })
+                  }
+                >
+                  会话与授权诊断
+                </Action>
                 <Action
                   action={async () =>
                     setResult(
@@ -92,7 +132,7 @@ export default function ConnectionsPage() {
                 >
                   停止连接
                 </Action>
-                {connection.transport !== 'stdio' ? (
+                {connection.transport !== 'stdio' && connection.source !== 'openapi' ? (
                   <Action
                     action={async () =>
                       setResult(
@@ -104,6 +144,12 @@ export default function ConnectionsPage() {
                   </Action>
                 ) : null}
               </div>
+              {connection.transport !== 'stdio' ? (
+                <AuthorizationBindings
+                  connectionId={connection.id}
+                  source={connection.source ?? 'mcp'}
+                />
+              ) : null}
             </div>
           ))
         ) : (
@@ -116,6 +162,23 @@ export default function ConnectionsPage() {
           <Code value={result} />
         </Card>
       ) : null}
+      <Dialog
+        open={Boolean(editing)}
+        onOpenChange={(open) => {
+          if (!open) setEditing(undefined);
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>编辑连接</DialogTitle>
+            <DialogDescription>保存后结束现有运行会话，后续调用按新配置执行。</DialogDescription>
+          </DialogHeader>
+          {editing ? (
+            <ConnectionSettings connection={editing} onSaved={() => setEditing(undefined)} />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+      <OpenApiPanel />
       <ImportPanel devices={devices.data ?? []} />
     </>
   );

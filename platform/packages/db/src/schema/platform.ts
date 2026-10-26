@@ -54,6 +54,8 @@ export const connections = pgTable(
     status: text('status').notNull().default('disconnected'),
     error: text('error'),
     protocolVersion: text('protocol_version'),
+    serverInfo: jsonb('server_info').$type<Record<string, unknown>>(),
+    instructions: text('instructions'),
     capabilities: jsonb('capabilities').$type<Record<string, unknown>>().default({}).notNull(),
     createdAt: created(),
   },
@@ -80,6 +82,7 @@ export const profiles = pgTable('profiles', {
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: owner(),
   name: text('name').notNull(),
+  instructions: text('instructions').notNull().default(''),
   toolIds: jsonb('tool_ids').$type<string[]>().default([]).notNull(),
   contentIds: jsonb('content_ids').$type<string[]>().default([]).notNull(),
   skillVersionIds: jsonb('skill_version_ids').$type<string[]>().default([]).notNull(),
@@ -225,5 +228,46 @@ export const tasks = pgTable('tasks', {
   status: text('status').notNull(),
   output: text('output').notNull().default(''),
   error: text('error'),
+  createdAt: created(),
+});
+
+export const authorizationBindings = pgTable(
+  'authorization_bindings',
+  {
+    id: text('id').primaryKey(),
+    ownerId: owner(),
+    connectionId: uuid('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    identity: text('identity').notNull(),
+    revoked: boolean('revoked').notNull().default(false),
+    encrypted: text('encrypted'),
+    createdAt: created(),
+  },
+  (t) => [uniqueIndex('binding_identity').on(t.connectionId, t.identity)],
+);
+export const catalogSnapshots = pgTable('catalog_snapshots', {
+  id: text('id').primaryKey(),
+  ownerId: owner(),
+  connectionId: uuid('connection_id')
+    .notNull()
+    .references(() => connections.id, { onDelete: 'cascade' }),
+  bindingId: text('binding_id')
+    .notNull()
+    .references(() => authorizationBindings.id, { onDelete: 'cascade' }),
+  capabilityKey: text('capability_key').notNull(),
+  encrypted: text('encrypted').notNull(),
+  updatedAt: created(),
+});
+export const interactions = pgTable('interactions', {
+  id: uuid('id').primaryKey(),
+  ownerId: owner(),
+  connectionId: uuid('connection_id')
+    .notNull()
+    .references(() => connections.id, { onDelete: 'cascade' }),
+  bindingId: text('binding_id').notNull(),
+  callId: uuid('call_id').notNull(),
+  encrypted: text('encrypted').notNull(),
+  status: text('status').notNull().default('waiting'),
   createdAt: created(),
 });

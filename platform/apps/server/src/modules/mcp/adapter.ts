@@ -1,14 +1,19 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { McpToolResult, McpRequestOptions } from '@platform/mcp';
 import type { Tool } from '@platform/mcp';
 import type { ConnectionInput } from '@platform/contracts';
-import type {
-  McpCatalog,
-  McpOperation,
-  McpNotification,
-  McpRequestOptions,
-  Progress,
-} from '@platform/mcp';
-export type ConnectionContext = { id: string; ownerId: string; config: ConnectionInput };
+import type { McpCatalog, McpOperation, McpNotification, Progress } from '@platform/mcp';
+export type ConnectionContext = {
+  id: string;
+  ownerId: string;
+  config: ConnectionInput;
+  bindingId?: string;
+  identity?: string;
+  runtimeKey?: string;
+  capabilityKey?: string;
+  sessionId?: string;
+  capabilities?: Record<string, unknown>;
+  correlationId?: string;
+};
 export interface ConnectionAdapter {
   status(): 'connected' | 'disconnected';
   discover(signal?: AbortSignal): Promise<Tool[]>;
@@ -20,7 +25,10 @@ export interface ConnectionAdapter {
     arguments: Record<string, unknown>;
     signal?: AbortSignal;
     onprogress?: (progress: Progress) => void;
-  }): Promise<CallToolResult>;
+    requestState?: string;
+    inputResponses?: Record<string, unknown>;
+  }): Promise<McpToolResult>;
+  check?(signal?: AbortSignal): Promise<void>;
   close(): Promise<void>;
 }
 export type AdapterFactory = (connection: ConnectionContext) => Promise<ConnectionAdapter>;

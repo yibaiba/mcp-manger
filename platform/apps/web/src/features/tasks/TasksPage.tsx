@@ -1,3 +1,5 @@
+import { InteractionPanel } from '../interactions/InteractionPanel.js';
+import { TaskApps } from '../apps/TaskApps.js';
 import { Card } from '../../components/ui/card.js';
 import { Textarea } from '../../components/ui/textarea.js';
 import { SelectControl } from '../../components/shared/SelectControl.js';
@@ -76,6 +78,7 @@ export default function TasksPage() {
           </Form>
         </Card>
       )}
+      <InteractionPanel />
       <Card className="panel">
         <div className="panel-heading">
           <h2>任务记录</h2>
@@ -93,6 +96,7 @@ export default function TasksPage() {
                 ) : null}
               </div>
               <small>{date(task.createdAt)}</small>
+              <TaskApps taskId={task.id} />
               {task.output ? <Code value={task.output} /> : null}
               {task.error ? <div className="error">{task.error}</div> : null}
             </div>

@@ -6,6 +6,7 @@ import { fixtureMcp } from './fixtureMcp.js';
 import { harness } from './harness.js';
 import { UpstreamOAuth } from '../apps/server/src/modules/authorizations/upstreamOAuth.js';
 import { Vault } from '../apps/server/src/shared/crypto.js';
+import { fixtureConnector } from './fixtureConnector.js';
 let h: Awaited<ReturnType<typeof harness>>;
 let upstream: Awaited<ReturnType<typeof oauthFixture>>;
 beforeAll(async () => {
@@ -47,6 +48,13 @@ test('official SDK upstream OAuth callback, refresh, restart persistence and rev
   upstream.expire();
   await h.services.connections.discover(account.ownerId, connection.id);
   expect(upstream.refreshes()).toBe(1);
+  const provider = h.services.upstreamOAuth.provider(context);
+  await provider.saveTokens({ ...(await provider.tokens())!, expires_in: 0 });
+  const headers = await Promise.all(
+    Array.from({ length: 10 }, () => h.services.upstreamOAuth.headers(context)),
+  );
+  expect(new Set(headers.map((value) => value.Authorization)).size).toBe(1);
+  expect(upstream.refreshes()).toBe(2);
   const restarted = new UpstreamOAuth({
     db: h.db,
     vault: new Vault(h.config.ENCRYPTION_KEY),
@@ -67,12 +75,18 @@ test('official SDK upstream OAuth callback, refresh, restart persistence and rev
   ).rejects.toThrow('授权状态');
 });
 
-async function oauthFixture() {
+async function oauthFixture(options: { expiresIn?: number } = {}) {
   const mcp = await fixtureMcp();
   const app = new Hono();
   let origin = '';
   let current = '';
   let refreshes = 0;
+  let dispatches = 0;
+  const agents: string[] = [];
+  app.use('*', async (c, next) => {
+    if (c.req.path !== '/mcp') agents.push(c.req.header('User-Agent') ?? '');
+    await next();
+  });
   app.get('/.well-known/oauth-protected-resource/mcp', (c) =>
     c.json({ resource: `${origin}/mcp`, authorization_servers: [origin] }),
   );
@@ -95,10 +109,15 @@ async function oauthFixture() {
       access_token: current,
       refresh_token: randomBytes(16).toString('hex'),
       token_type: 'Bearer',
-      expires_in: 3600,
+      expires_in: refreshes ? 3600 : (options.expiresIn ?? 3600),
     });
   });
   app.all('/mcp', async (c) => {
+    if (
+      c.req.method === 'POST' &&
+      ((await c.req.raw.clone().json()) as { method?: string }).method === 'tools/call'
+    )
+      dispatches++;
     if (!current || c.req.header('Authorization') !== `Bearer ${current}`)
       return new Response(null, {
         status: 401,
@@ -119,9 +138,97 @@ async function oauthFixture() {
       current = '';
     },
     refreshes: () => refreshes,
+    dispatches: () => dispatches,
+    agents: () => agents,
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await mcp.close();
     },
   };
 }
+test('device OAuth discovery, exchange and proactive refresh execute on the private Go authorization channel', async () => {
+  const account = await h.signup();
+  const device = await fixtureConnector(h, account.ownerId);
+  try {
+    const connection = await h.services.connections.create(account.ownerId, {
+      name: 'Device OAuth',
+      adapter: 'device',
+      deviceId: device.deviceId,
+      transport: 'http',
+      mode: 'existing',
+      url: `${upstream.origin}/mcp`,
+      oauth: { clientId: 'device-registered' },
+    });
+    const context = await h.services.connections.context(account.ownerId, connection.id);
+    const start = await h.services.upstreamOAuth.start(context);
+    const state = new URL(start.authorizationUrl!).searchParams.get('state')!;
+    await h.services.upstreamOAuth.complete(context, { code: 'device-code', state });
+    const provider = h.services.upstreamOAuth.provider(context);
+    await provider.saveTokens({
+      ...(await provider.tokens()),
+      access_token: 'expired-device-token',
+      token_type: 'Bearer',
+      expires_in: 0,
+    });
+    const before = upstream.refreshes();
+    expect((await h.services.connections.discover(account.ownerId, connection.id))[0]?.name).toBe(
+      'echo',
+    );
+    expect(upstream.refreshes() - before).toBe(1);
+    expect(upstream.agents().some((agent) => agent.startsWith('Go-http-client/'))).toBe(true);
+    expect((await h.services.connections.check(account.ownerId, connection.id)).healthy).toBe(true);
+  } finally {
+    await device.close();
+  }
+});
+
+test('Pi owns OAuth exchange and proactive refresh while a rejected tool is dispatched only once', async () => {
+  const fixture = await oauthFixture({ expiresIn: 0 });
+  try {
+    const account = await h.signup();
+    const connection = await h.services.connections.create(account.ownerId, {
+      name: 'Pi OAuth',
+      adapter: 'pi',
+      transport: 'http',
+      mode: 'existing',
+      url: `${fixture.origin}/mcp`,
+      oauth: { clientId: 'pi-registered' },
+    });
+    const context = await h.services.connections.context(account.ownerId, connection.id);
+    const start = (await h.services.pi.action(context, { action: 'auth-start' })) as {
+      details: { authorizationUrl: string };
+    };
+    const authorization = new URL(start.details.authorizationUrl);
+    const redirect = new URL(authorization.searchParams.get('redirect_uri')!);
+    redirect.searchParams.set('state', authorization.searchParams.get('state')!);
+    redirect.searchParams.set('code', 'pi-test-code');
+    await h.services.pi.action(context, {
+      action: 'auth-complete',
+      args: { redirectUrl: redirect.href },
+    });
+    const tools = await h.services.connections.discover(account.ownerId, connection.id);
+    fixture.expire();
+    expect(
+      await h.services.invocations.call({
+        ownerId: account.ownerId,
+        toolId: tools[0]!.id,
+        arguments: { message: 'Pi refresh' },
+      }),
+    ).toMatchObject({ content: [{ type: 'text', text: 'Pi refresh' }] });
+    expect(fixture.refreshes()).toBe(1);
+    const before = fixture.dispatches();
+    fixture.expire();
+    await expect(
+      h.services.invocations.call({
+        ownerId: account.ownerId,
+        toolId: tools[0]!.id,
+        arguments: { message: 'Rejected' },
+      }),
+    ).rejects.toThrow(/授权被拒绝/);
+    expect(fixture.dispatches() - before).toBe(1);
+    expect(fixture.refreshes()).toBe(1);
+  } finally {
+    await h.services.pi.close();
+    await fixture.close();
+  }
+});

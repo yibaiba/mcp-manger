@@ -3,7 +3,26 @@ import { digest } from '../../shared/crypto.js';
 import type { ConnectionContext } from './adapter.js';
 
 export const scopedUri = (connectionId: string, uri: string) =>
-  `mcp-platform://${connectionId}/${uri}`;
+  uri.startsWith('ui://')
+    ? `ui://${connectionId}/${uri.slice('ui://'.length)}`
+    : `mcp-platform://${connectionId}/${uri}`;
+export function originalUri(connectionId: string, uri: string) {
+  const ui = `ui://${connectionId}/`;
+  if (uri.startsWith(ui)) return `ui://${uri.slice(ui.length)}`;
+  const prefix = scopedUri(connectionId, '');
+  return uri.startsWith(prefix) ? uri.slice(prefix.length) : undefined;
+}
+export function scopeToolDefinition(connectionId: string, definition: Record<string, unknown>) {
+  const meta = definition._meta as { ui?: { resourceUri?: string } } | undefined;
+  if (!meta?.ui?.resourceUri) return definition;
+  return {
+    ...definition,
+    _meta: {
+      ...meta,
+      ui: { ...meta.ui, resourceUri: scopedUri(connectionId, meta.ui.resourceUri) },
+    },
+  };
+}
 export function catalogEntries(context: ConnectionContext, catalog: McpCatalog) {
   const groups = [
     {

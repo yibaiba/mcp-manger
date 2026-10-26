@@ -1,3 +1,8 @@
+import { lazy, Suspense } from 'react';
+import { InteractionPanel } from '../interactions/InteractionPanel.js';
+const AppHost = lazy(() =>
+  import('../apps/AppHost.js').then((module) => ({ default: module.AppHost })),
+);
 import { Disclosure } from '../../components/shared/Disclosure.js';
 import { Card } from '../../components/ui/card.js';
 import { Textarea } from '../../components/ui/textarea.js';
@@ -22,6 +27,10 @@ export default function ToolsPage() {
   const [selected, setSelected] = useState<Tool>();
   const [result, setResult] = useState<unknown>();
   const controller = useRef<AbortController | null>(null);
+  const appSession = (result as { _meta?: Record<string, unknown> } | undefined)?._meta?.[
+    'platform/appSession'
+  ];
+  const interactionId = (result as { interactionId?: string } | undefined)?.interactionId;
   const filtered = tools.data?.filter((t) =>
     `${t.name} ${t.definition.description ?? ''}`.toLowerCase().includes(filter.toLowerCase()),
   );
@@ -85,7 +94,12 @@ export default function ToolsPage() {
                     setResult(
                       await api(`/tools/${selected.id}/call`, {
                         method: 'POST',
-                        body: json({ arguments: JSON.parse(value(data, 'args')) }),
+                        body: json({
+                          arguments: JSON.parse(value(data, 'args')),
+                          interactionDeadline: value(data, 'deadline')
+                            ? new Date(value(data, 'deadline')).toISOString()
+                            : undefined,
+                        }),
                         signal: controller.current.signal,
                       }),
                     );
@@ -97,6 +111,12 @@ export default function ToolsPage() {
                 <Field label="参数（JSON 对象）">
                   <Textarea name="args" defaultValue="{}" rows={8} required />
                 </Field>
+                <Field
+                  label="交互等待截止时间（可选）"
+                  hint="留空时不额外限制用户补充信息的等待时间。"
+                >
+                  <Input name="deadline" type="datetime-local" />
+                </Field>
               </Form>
               <Button variant="outline" onClick={() => controller.current?.abort()}>
                 取消请求
@@ -105,6 +125,14 @@ export default function ToolsPage() {
                 <>
                   <h3>返回结果</h3>
                   <Code value={result} />
+                  {interactionId ? (
+                    <InteractionPanel id={interactionId} onResult={setResult} />
+                  ) : null}
+                  {typeof appSession === 'string' ? (
+                    <Suspense fallback={<p>加载 App…</p>}>
+                      <AppHost key={appSession} sessionId={appSession} />
+                    </Suspense>
+                  ) : null}
                 </>
               ) : null}
             </>

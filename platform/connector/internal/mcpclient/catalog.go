@@ -9,6 +9,8 @@ import (
 )
 
 type Catalog struct {
+	ServerInfo      *mcp.Implementation     `json:"serverInfo,omitempty"`
+	Instructions    string                  `json:"instructions,omitempty"`
 	Tools           []*mcp.Tool             `json:"tools"`
 	Prompts         []*mcp.Prompt           `json:"prompts"`
 	Resources       []*mcp.Resource         `json:"resources"`
@@ -30,7 +32,7 @@ func collect[T any](sequence iter.Seq2[T, error]) ([]T, error) {
 
 func discoverCatalog(ctx context.Context, session *mcp.ClientSession) (*Catalog, error) {
 	initialized := session.InitializeResult()
-	result := &Catalog{Tools: []*mcp.Tool{}, Prompts: []*mcp.Prompt{}, Resources: []*mcp.Resource{}, Templates: []*mcp.ResourceTemplate{}, ProtocolVersion: initialized.ProtocolVersion, Capabilities: initialized.Capabilities}
+	result := &Catalog{ServerInfo: initialized.ServerInfo, Instructions: initialized.Instructions, Tools: []*mcp.Tool{}, Prompts: []*mcp.Prompt{}, Resources: []*mcp.Resource{}, Templates: []*mcp.ResourceTemplate{}, ProtocolVersion: initialized.ProtocolVersion, Capabilities: initialized.Capabilities}
 	var err error
 	if result.Capabilities.Tools != nil {
 		result.Tools, err = collect(session.Tools(ctx, nil))

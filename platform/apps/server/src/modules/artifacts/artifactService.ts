@@ -34,18 +34,33 @@ export class ArtifactService {
       .regex(/^[a-f0-9]{64}$/)
       .parse(input.sha256);
     if (!input.body) throw new AppError('BODY_REQUIRED', '缺少文件流');
+    return this.store(ownerId, { ...input, name, sha256 });
+  }
+  async store(
+    ownerId: string,
+    input: { name: string; body: ReadableStream<Uint8Array> | null; sha256?: string },
+  ) {
+    if (!input.body) throw new AppError('BODY_REQUIRED', '缺少文件流');
     const id = randomUUID();
-    const stored = await this.deps.files.write({ id, sha256, body: input.body });
+    const stored = await this.deps.files.write({ id, sha256: input.sha256, body: input.body });
     try {
       const [row] = await this.deps.db
         .insert(artifacts)
-        .values({ id, ownerId, name, ...stored })
+        .values({ id, ownerId, name: input.name, ...stored })
         .returning();
       return requireValue(row);
     } catch (error) {
       await this.deps.files.remove(id);
       throw error;
     }
+  }
+  async blob(ownerId: string, id: string) {
+    const [row] = await this.deps.db
+      .select()
+      .from(artifacts)
+      .where(and(eq(artifacts.id, id), eq(artifacts.ownerId, ownerId)));
+    requireValue(row);
+    return this.deps.files.blob(id);
   }
   async download(ownerId: string, id: string) {
     const [row] = await this.deps.db

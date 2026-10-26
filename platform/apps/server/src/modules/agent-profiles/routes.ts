@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { clientPresets, exportClient } from './clientExport.js';
 import { Hono } from 'hono';
 import { owner, paramId, type ApiEnv } from '../../shared/http.js';
 import type { ProfileService } from './profileService.js';
@@ -20,11 +22,22 @@ export function profileRoutes(deps: {
     await deps.pi.revokeProfile(paramId(c));
     return c.json(profile);
   });
+  app.get('/:id/export', async (c) => {
+    await deps.profiles.owned(owner(c), paramId(c));
+    const preset = z
+      .enum(clientPresets)
+      .default('generic-mcp-servers')
+      .parse(c.req.query('client'));
+    return c.json(exportClient({ preset, url: `${deps.publicUrl}/mcp/${paramId(c)}` }));
+  });
   app.post('/:id/keys', async (c) => {
     const key = await deps.profiles.issue(owner(c), paramId(c));
     return c.json(
       {
         ...key,
+        exports: clientPresets.map((preset) =>
+          exportClient({ preset, url: `${deps.publicUrl}/mcp/${paramId(c)}`, token: key.token }),
+        ),
         config: {
           mcpServers: {
             platform: {

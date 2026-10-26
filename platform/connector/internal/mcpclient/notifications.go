@@ -7,6 +7,7 @@ import (
 )
 
 type Notification struct {
+	SessionID    string `json:"sessionId,omitempty"`
 	V            int    `json:"v"`
 	Type         string `json:"type"`
 	ConnectionID string `json:"connectionId"`
@@ -33,27 +34,31 @@ func (m *Manager) emit(event Notification) {
 	notify(event)
 }
 
-func (m *Manager) clientOptions(id string) *mcp.ClientOptions {
+func (m *Manager) clientOptions(id string, sessionIDs ...string) *mcp.ClientOptions {
+	sessionID := ""
+	if len(sessionIDs) > 0 {
+		sessionID = sessionIDs[0]
+	}
 	return &mcp.ClientOptions{
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
 		ToolListChangedHandler: func(_ context.Context, _ *mcp.ToolListChangedRequest) {
-			m.emit(Notification{ConnectionID: id, Method: "notifications/tools/list_changed"})
+			m.emit(Notification{ConnectionID: id, SessionID: sessionID, Method: "notifications/tools/list_changed"})
 		},
 		PromptListChangedHandler: func(_ context.Context, _ *mcp.PromptListChangedRequest) {
-			m.emit(Notification{ConnectionID: id, Method: "notifications/prompts/list_changed"})
+			m.emit(Notification{ConnectionID: id, SessionID: sessionID, Method: "notifications/prompts/list_changed"})
 		},
 		ResourceListChangedHandler: func(_ context.Context, _ *mcp.ResourceListChangedRequest) {
-			m.emit(Notification{ConnectionID: id, Method: "notifications/resources/list_changed"})
+			m.emit(Notification{ConnectionID: id, SessionID: sessionID, Method: "notifications/resources/list_changed"})
 		},
 		ResourceUpdatedHandler: func(_ context.Context, req *mcp.ResourceUpdatedNotificationRequest) {
-			m.emit(Notification{ConnectionID: id, Method: "notifications/resources/updated", Params: req.Params})
+			m.emit(Notification{ConnectionID: id, SessionID: sessionID, Method: "notifications/resources/updated", Params: req.Params})
 		},
 		ProgressNotificationHandler: func(_ context.Context, req *mcp.ProgressNotificationClientRequest) {
 			requestID, ok := req.Params.ProgressToken.(string)
 			if !ok {
 				return
 			}
-			m.emit(Notification{ConnectionID: id, Method: "notifications/progress", Params: req.Params, RequestID: requestID})
+			m.emit(Notification{ConnectionID: id, SessionID: sessionID, Method: "notifications/progress", Params: req.Params, RequestID: requestID})
 		},
 	}
 }

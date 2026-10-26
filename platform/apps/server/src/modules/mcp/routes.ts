@@ -11,6 +11,19 @@ export function connectionRoutes(service: ConnectionService) {
   app.post('/:id/discover', async (c) =>
     c.json(await service.discover(owner(c), paramId(c), c.req.raw.signal)),
   );
+  app.patch('/:id', async (c) =>
+    c.json(await service.update(owner(c), paramId(c), await c.req.json())),
+  );
+  app.post('/:id/wake', async (c) => c.json(await service.wake(owner(c), paramId(c))));
+  app.post('/:id/sleep', async (c) => {
+    await service.sleep(owner(c), paramId(c));
+    return c.json({ sleeping: true });
+  });
+  app.post('/:id/check', async (c) => c.json(await service.check(owner(c), paramId(c))));
+  app.get('/:id/bindings', async (c) => {
+    await service.owned(owner(c), paramId(c));
+    return c.json(await service.bindings.list(owner(c), paramId(c)));
+  });
   app.post('/:id/stop', async (c) => {
     await service.stop(owner(c), paramId(c));
     return c.json({ stopped: true });
@@ -23,10 +36,11 @@ export function toolRoutes(profiles: ProfileService, invocations: InvocationServ
   app.post('/:toolId/call', async (c) => {
     const input = callInput.parse(await c.req.json());
     return c.json(
-      await invocations.call({
+      await invocations.dispatch({
         ownerId: owner(c),
         toolId: c.req.param('toolId'),
         arguments: input.arguments,
+        interactionDeadline: input.interactionDeadline,
         signal: c.req.raw.signal,
       }),
     );

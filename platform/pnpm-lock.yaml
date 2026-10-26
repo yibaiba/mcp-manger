@@ -20,8 +20,14 @@ catalogs:
       version: 4.4.3
 
 patchedDependencies:
+  '@modelcontextprotocol/client@2.3.1':
+    hash: afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8
+    path: patches/@modelcontextprotocol__client@2.3.1.patch
+  '@modelcontextprotocol/server@2.3.1':
+    hash: 5e065d5fe6cc9d23f2cc4fb9f32d2881452a179dad0dc2331cb73fd601afd42c
+    path: patches/@modelcontextprotocol__server@2.3.1.patch
   pi-mcp-adapter@7.0.0:
-    hash: 7836d41d55d82677db2af5098da54e64b2aa35ced9f8432b82bee52828aefbfa
+    hash: d3ef38d6807414802444c2cab2f23473c32362f9698c2c43630f00e7b1073a42
     path: patches/pi-mcp-adapter@7.0.0.patch
 
 importers:
@@ -39,13 +45,13 @@ importers:
         version: 1.14.4(hono@4.13.11)
       '@modelcontextprotocol/client':
         specifier: 2.3.1
-        version: 2.3.1
+        version: 2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8)
       '@modelcontextprotocol/sdk':
         specifier: 1.32.2
         version: 1.32.2(zod@4.4.3)
       '@modelcontextprotocol/server':
         specifier: 2.3.1
-        version: 2.3.1
+        version: 2.3.1(patch_hash=5e065d5fe6cc9d23f2cc4fb9f32d2881452a179dad0dc2331cb73fd601afd42c)
       '@platform/pi-runtime':
         specifier: workspace:*
         version: link:integrations/pi
@@ -85,18 +91,24 @@ importers:
 
   apps/server:
     dependencies:
+      '@apidevtools/swagger-parser':
+        specifier: 13.1.0
+        version: 13.1.0(openapi-types@12.1.3)
       '@hono/node-server':
         specifier: 1.14.4
         version: 1.14.4(hono@4.13.11)
       '@modelcontextprotocol/client':
         specifier: 2.3.1
-        version: 2.3.1
+        version: 2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8)
+      '@modelcontextprotocol/ext-apps':
+        specifier: 2.0.3
+        version: 2.0.3(@modelcontextprotocol/client@2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8))(@modelcontextprotocol/core@2.3.1)(@modelcontextprotocol/server@2.3.1(patch_hash=5e065d5fe6cc9d23f2cc4fb9f32d2881452a179dad0dc2331cb73fd601afd42c))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       '@modelcontextprotocol/sdk':
         specifier: 1.32.2
         version: 1.32.2(zod@4.4.3)
       '@modelcontextprotocol/server':
         specifier: 2.3.1
-        version: 2.3.1
+        version: 2.3.1(patch_hash=5e065d5fe6cc9d23f2cc4fb9f32d2881452a179dad0dc2331cb73fd601afd42c)
       '@platform/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -158,6 +170,9 @@ importers:
       '@base-ui/react':
         specifier: 1.0.0
         version: 1.0.0(@types/react@19.2.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@modelcontextprotocol/ext-apps':
+        specifier: 2.0.3
+        version: 2.0.3(@modelcontextprotocol/client@2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8))(@modelcontextprotocol/core@2.3.1)(@modelcontextprotocol/server@2.3.1(patch_hash=5e065d5fe6cc9d23f2cc4fb9f32d2881452a179dad0dc2331cb73fd601afd42c))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       '@platform/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -251,7 +266,7 @@ importers:
         version: link:../../packages/mcp
       pi-mcp-adapter:
         specifier: 7.0.0
-        version: 7.0.0(patch_hash=7836d41d55d82677db2af5098da54e64b2aa35ced9f8432b82bee52828aefbfa)(@earendil-works/pi-ai@1.4.0(@aws-sdk/credential-provider-node@3.972.88)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.4)(undici@8.10.2)(zod@4.6.7))(@earendil-works/pi-tui@1.4.0)(typebox@1.0.55)(zod@4.6.7)
+        version: 7.0.0(patch_hash=d3ef38d6807414802444c2cab2f23473c32362f9698c2c43630f00e7b1073a42)(@earendil-works/pi-ai@1.4.0(@aws-sdk/credential-provider-node@3.972.88)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.4)(undici@8.10.2)(zod@4.6.7))(@earendil-works/pi-tui@1.4.0)(typebox@1.0.55)(zod@4.6.7)
       tsx:
         specifier: 4.21.0
         version: 4.21.0
@@ -328,7 +343,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/client':
         specifier: 2.3.1
-        version: 2.3.1
+        version: 2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8)
 
 packages:
   '@anthropic-ai/sdk@0.129.0':
@@ -342,6 +357,37 @@ packages:
     peerDependenciesMeta:
       zod:
         optional: true
+
+  '@apidevtools/json-schema-ref-parser@16.0.5':
+    resolution:
+      {
+        integrity: sha512-z3LiEMqTP2FNu6u8bdUgBYErVuwMSZReOJy1MCEIB0BDHMoNgBtkciby32HOlcrfWwrOSzRU8YIsZ0CogYRuYQ==,
+      }
+    engines: { node: '>=22.19.0' }
+    peerDependencies:
+      '@types/json-schema': ^7.0.15
+
+  '@apidevtools/openapi-schemas@2.1.0':
+    resolution:
+      {
+        integrity: sha512-Zc1AlqrJlX3SlpupFGpiLi2EbteyP7fXmUOGup6/DnkRgjP9bgMM/ag+n91rsv0U1Gpz0H3VILA/o3bW7Ua6BQ==,
+      }
+    engines: { node: '>=10' }
+
+  '@apidevtools/swagger-methods@3.0.2':
+    resolution:
+      {
+        integrity: sha512-QAkD5kK2b1WfjDS/UQn/qQkbwF31uqRjPTrsCs5ZG9BQGAkjwvqGFjjPqAuzac/IYzpPtRzjCP1WrTuAIjMrXg==,
+      }
+
+  '@apidevtools/swagger-parser@13.1.0':
+    resolution:
+      {
+        integrity: sha512-dkCuqCWh5U7u0aurmmc/qvel2KeKDxHTwVtUdYonndIpD7mXV6AVaWNdvaja2HAy628z7FT/Qdz8sCgzwhgwKg==,
+      }
+    engines: { node: '>=22.19.0' }
+    peerDependencies:
+      openapi-types: '>=7'
 
   '@aws-sdk/client-bedrock-runtime@3.1127.0':
     resolution:
@@ -2013,6 +2059,27 @@ packages:
       }
     engines: { node: '>=20' }
 
+  '@modelcontextprotocol/ext-apps@2.0.3':
+    resolution:
+      {
+        integrity: sha512-Tn+4+cyhO4f4cQSDxNyLiIfEE+qlTTuIbWBJB8JTinEXOhDYgCT4wDTQplxD9MBYZH5pCYGC59GaxiwIT4bu8w==,
+      }
+    engines: { node: '>=20' }
+    peerDependencies:
+      '@modelcontextprotocol/client': ^2.0.0
+      '@modelcontextprotocol/core': ^2.0.0
+      '@modelcontextprotocol/server': ^2.0.0
+      react: ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^17.0.0 || ^18.0.0 || ^19.0.0
+      zod: ^4.2.0
+    peerDependenciesMeta:
+      '@modelcontextprotocol/server':
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
   '@modelcontextprotocol/ext-tasks@0.2.2':
     resolution:
       {
@@ -3372,6 +3439,17 @@ packages:
       }
     engines: { node: '>= 20' }
 
+  ajv-draft-04@1.0.0:
+    resolution:
+      {
+        integrity: sha512-mv00Te6nmYbRp5DCwclxtt7yV/joXJPGS7nM+97GdxvuttCOfgI3K4U25zboyeX0O+myI8ERluxQe5wljMmVIw==,
+      }
+    peerDependencies:
+      ajv: ^8.5.0
+    peerDependenciesMeta:
+      ajv:
+        optional: true
+
   ajv-formats@3.0.1:
     resolution:
       {
@@ -3408,6 +3486,12 @@ packages:
         integrity: sha512-KMReFUr0B4t+D+OBkjR3KYqvocp2XaSzO55UcB6mgQMd3KbcE+mWTyvVV7D/zsdEbNnV6acZUutkiHQXvTr1Rw==,
       }
     engines: { node: '>= 8' }
+
+  argparse@3.0.4:
+    resolution:
+      {
+        integrity: sha512-fwWK3Zq22l4XJJjx5mcBHGikIk+hJqO+32dPm0Jur7+rtG5x1scOjSfdT9ZKeWHPpsya/l0HHK4tDImBkTrtvA==,
+      }
 
   assertion-error@2.0.1:
     resolution:
@@ -3633,6 +3717,12 @@ packages:
         integrity: sha512-+ys997U96po4Kx/ABpBCqhA9EuxJaQWDQg7295H4hBphv3IZg0boBKuwYpt4YXp6MZ5AmZQnU/tyMTlRpaSejg==,
       }
     engines: { node: '>= 0.4' }
+
+  call-me-maybe@1.0.2:
+    resolution:
+      {
+        integrity: sha512-HpX65o1Hnr9HH25ojC1YGs7HCQLq0GCOibSaWER0eNpgJ/Z1MZv2mTc7+xh6WOPxbRVcmgbv4hGU+uSQ/2xFZQ==,
+      }
 
   caniuse-lite@1.0.30001819:
     resolution:
@@ -4682,6 +4772,13 @@ packages:
         integrity: sha512-mxa9E9ITFOt0ban3j6L5MpjwegGz6lBQmM1IJkWeBZGcMxto50+eWdjC/52xDbS2vy0k7vIMK0Fe2wfL9OQSpQ==,
       }
 
+  js-yaml@5.5.0:
+    resolution:
+      {
+        integrity: sha512-paNr4LFIFPjeeSmwNYdrb8FafLLG/Cr2Af3GjbsHJ5CxIjH4r0c2emlmRdAtpPAieP1gRVzk6buBbVP5gBMGAg==,
+      }
+    hasBin: true
+
   jsesc@3.1.0:
     resolution:
       {
@@ -5105,6 +5202,12 @@ packages:
         optional: true
       zod:
         optional: true
+
+  openapi-types@12.1.3:
+    resolution:
+      {
+        integrity: sha512-N4YtSYJqghVu4iek2ZUvcN/0aqH1kRDuNqzcycDxhOUpg7GdvLa2F3DgS6yBNhInhv2r/6I0Flkn7CqL8+nIcw==,
+      }
 
   optionator@0.9.4:
     resolution:
@@ -6360,6 +6463,26 @@ snapshots:
     optionalDependencies:
       zod: 4.6.7
 
+  '@apidevtools/json-schema-ref-parser@16.0.5(@types/json-schema@7.0.15)':
+    dependencies:
+      '@types/json-schema': 7.0.15
+      js-yaml: 5.5.0
+
+  '@apidevtools/openapi-schemas@2.1.0': {}
+
+  '@apidevtools/swagger-methods@3.0.2': {}
+
+  '@apidevtools/swagger-parser@13.1.0(openapi-types@12.1.3)':
+    dependencies:
+      '@apidevtools/json-schema-ref-parser': 16.0.5(@types/json-schema@7.0.15)
+      '@apidevtools/openapi-schemas': 2.1.0
+      '@apidevtools/swagger-methods': 3.0.2
+      '@types/json-schema': 7.0.15
+      ajv: 8.20.0
+      ajv-draft-04: 1.0.0(ajv@8.20.0)
+      call-me-maybe: 1.0.2
+      openapi-types: 12.1.3
+
   '@aws-sdk/client-bedrock-runtime@3.1127.0':
     dependencies:
       '@aws-sdk/core': 3.978.5
@@ -7337,7 +7460,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@modelcontextprotocol/client@2.3.1':
+  '@modelcontextprotocol/client@2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8)':
     dependencies:
       '@modelcontextprotocol/core': 2.3.1
       cross-spawn: 7.0.6
@@ -7351,11 +7474,22 @@ snapshots:
     dependencies:
       zod: 4.6.7
 
-  '@modelcontextprotocol/ext-tasks@0.2.2(@modelcontextprotocol/client@2.3.1)':
+  '@modelcontextprotocol/ext-apps@2.0.3(@modelcontextprotocol/client@2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8))(@modelcontextprotocol/core@2.3.1)(@modelcontextprotocol/server@2.3.1(patch_hash=5e065d5fe6cc9d23f2cc4fb9f32d2881452a179dad0dc2331cb73fd601afd42c))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)':
+    dependencies:
+      '@modelcontextprotocol/client': 2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8)
+      '@modelcontextprotocol/core': 2.3.1
+      '@standard-schema/spec': 1.1.0
+      zod: 4.4.3
+    optionalDependencies:
+      '@modelcontextprotocol/server': 2.3.1(patch_hash=5e065d5fe6cc9d23f2cc4fb9f32d2881452a179dad0dc2331cb73fd601afd42c)
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
+
+  '@modelcontextprotocol/ext-tasks@0.2.2(@modelcontextprotocol/client@2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8))':
     dependencies:
       zod: 4.6.7
     optionalDependencies:
-      '@modelcontextprotocol/client': 2.3.1
+      '@modelcontextprotocol/client': 2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8)
 
   '@modelcontextprotocol/sdk@1.32.2(zod@4.4.3)':
     dependencies:
@@ -7402,7 +7536,7 @@ snapshots:
       - supports-color
     optional: true
 
-  '@modelcontextprotocol/server@2.3.1':
+  '@modelcontextprotocol/server@2.3.1(patch_hash=5e065d5fe6cc9d23f2cc4fb9f32d2881452a179dad0dc2331cb73fd601afd42c)':
     dependencies:
       '@modelcontextprotocol/core': 2.3.1
       zod: 4.6.7
@@ -8141,6 +8275,10 @@ snapshots:
 
   agent-base@9.0.0: {}
 
+  ajv-draft-04@1.0.0(ajv@8.20.0):
+    optionalDependencies:
+      ajv: 8.20.0
+
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
       ajv: 8.20.0
@@ -8165,6 +8303,8 @@ snapshots:
     dependencies:
       normalize-path: 3.0.0
       picomatch: 2.3.2
+
+  argparse@3.0.4: {}
 
   assertion-error@2.0.1: {}
 
@@ -8353,6 +8493,8 @@ snapshots:
     dependencies:
       call-bind-apply-helpers: 1.0.2
       get-intrinsic: 1.3.0
+
+  call-me-maybe@1.0.2: {}
 
   caniuse-lite@1.0.30001819: {}
 
@@ -8987,6 +9129,10 @@ snapshots:
 
   js-tokens@9.0.1: {}
 
+  js-yaml@5.5.0:
+    dependencies:
+      argparse: 3.0.4
+
   jsesc@3.1.0: {}
 
   json-bigint@1.0.0:
@@ -9173,6 +9319,8 @@ snapshots:
       undici: 8.10.2
       zod: 4.6.7
 
+  openapi-types@12.1.3: {}
+
   optionator@0.9.4:
     dependencies:
       deep-is: 0.1.4
@@ -9244,12 +9392,12 @@ snapshots:
     dependencies:
       split2: 4.2.0
 
-  pi-mcp-adapter@7.0.0(patch_hash=7836d41d55d82677db2af5098da54e64b2aa35ced9f8432b82bee52828aefbfa)(@earendil-works/pi-ai@1.4.0(@aws-sdk/credential-provider-node@3.972.88)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.4)(undici@8.10.2)(zod@4.6.7))(@earendil-works/pi-tui@1.4.0)(typebox@1.0.55)(zod@4.6.7):
+  pi-mcp-adapter@7.0.0(patch_hash=d3ef38d6807414802444c2cab2f23473c32362f9698c2c43630f00e7b1073a42)(@earendil-works/pi-ai@1.4.0(@aws-sdk/credential-provider-node@3.972.88)(@modelcontextprotocol/sdk@1.32.2(zod@4.6.7))(@smithy/signature-v4@5.7.4)(undici@8.10.2)(zod@4.6.7))(@earendil-works/pi-tui@1.4.0)(typebox@1.0.55)(zod@4.6.7):
     dependencies:
       '@earendil-works/pi-tui': 1.4.0
-      '@modelcontextprotocol/client': 2.3.1
+      '@modelcontextprotocol/client': 2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8)
       '@modelcontextprotocol/core': 2.3.1
-      '@modelcontextprotocol/ext-tasks': 0.2.2(@modelcontextprotocol/client@2.3.1)
+      '@modelcontextprotocol/ext-tasks': 0.2.2(@modelcontextprotocol/client@2.3.1(patch_hash=afd406e18d2868e61eba7e0cd5e2503c17c6cee58f259d55af83d0a8d8e459d8))
       '@napi-rs/keyring': 2.1.2
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)

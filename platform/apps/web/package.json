@@ -11,8 +11,9 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@platform/contracts": "workspace:*",
     "@base-ui/react": "1.0.0",
+    "@modelcontextprotocol/ext-apps": "2.0.3",
+    "@platform/contracts": "workspace:*",
     "@tailwindcss/vite": "4.0.15",
     "@tanstack/react-query": "5.90.12",
     "@tanstack/react-router": "1.141.1",

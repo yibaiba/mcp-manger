@@ -29,6 +29,12 @@ export type Device = {
   services: { id: string; status: string; error?: string }[];
 };
 export type Connection = {
+  identityMode?: string;
+  sessions?: string[];
+  lifecycle?: { startup: string; idleTimeoutMs?: number; shutdownGraceMs: number };
+  health?: { enabled: boolean; intervalMs: number; timeoutMs: number; recover: boolean };
+  forwardHeaders?: string[];
+  source?: string;
   id: string;
   name: string;
   adapter: string;
@@ -65,6 +71,7 @@ export type ContentEntry = {
   };
 };
 export type Profile = {
+  instructions?: string;
   id: string;
   name: string;
   toolIds: string[];

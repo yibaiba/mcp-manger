@@ -1,6 +1,7 @@
 import { Card } from '../../components/ui/card.js';
 import { CheckChoice } from '../../components/shared/CheckChoice.js';
 import { Button } from '../../components/ui/button.js';
+import { Textarea } from '../../components/ui/textarea.js';
 import { Input } from '../../components/ui/input.js';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -13,7 +14,8 @@ import {
   type Connection,
   type ContentEntry,
 } from '../../lib/api.js';
-import { ContentGrants } from './ContentGrants.js';
+import { ContentGrants, appInfo } from './ContentGrants.js';
+import { ClientExport } from './ClientExport.js';
 import {
   Action,
   Code,
@@ -78,6 +80,7 @@ export default function ProfilesPage() {
                 method: editing ? 'PUT' : 'POST',
                 body: json({
                   name: value(data, 'name'),
+                  instructions: value(data, 'instructions'),
                   toolIds: data.getAll('toolId'),
                   contentIds: data.getAll('contentId'),
                   skillVersionIds: data.getAll('skillVersionId'),
@@ -95,6 +98,9 @@ export default function ProfilesPage() {
                 placeholder="例如：Claude Code"
               />
             </Field>
+            <Field label="Agent 说明" hint="按授权服务的稳定顺序追加上游服务说明，并标记来源。">
+              <Textarea name="instructions" defaultValue={editing?.instructions ?? ''} />
+            </Field>
             <fieldset>
               <legend>允许访问的工具</legend>
               {tools.data?.map((tool) => (
@@ -107,6 +113,17 @@ export default function ProfilesPage() {
                   <span>
                     <strong>{tool.name}</strong>
                     <small>{connectionNames.get(tool.connectionId)}</small>
+                    {appInfo(tool) ? (
+                      <small>
+                        {appInfo(tool)?.resourceUri
+                          ? `App UI：${appInfo(tool)?.resourceUri} · `
+                          : ''}
+                        {appInfo(tool)?.visibility?.includes('app') &&
+                        !appInfo(tool)?.visibility?.includes('model')
+                          ? '仅 App 可用，不提供给模型'
+                          : '可供模型调用'}
+                      </small>
+                    ) : null}
                   </span>
                 </CheckChoice>
               ))}
@@ -116,6 +133,7 @@ export default function ProfilesPage() {
               entries={catalog.data ?? []}
               selected={editing?.contentIds ?? []}
               connectionNames={connectionNames}
+              tools={tools.data ?? []}
             />
             <fieldset>
               <legend>Skill 版本</legend>
@@ -161,6 +179,7 @@ export default function ProfilesPage() {
                 <Code value={`${window.location.origin}/mcp/${profile.id}`} />
                 <div className="row-actions">
                   <Button onClick={() => setEditing(profile)}>编辑权限</Button>
+                  <ClientExport profileId={profile.id} />
                   <Action
                     action={async () =>
                       setKey(await api(`/profiles/${profile.id}/keys`, { method: 'POST' }))
@@ -194,6 +213,9 @@ export default function ProfilesPage() {
           <h2>接入配置</h2>
           <p>密钥仅在此时展示。复制到 Agent 的 MCP 配置中。</p>
           <Code value={key} />
+          <ClientExport
+            issued={(key as { exports: Parameters<typeof ClientExport>[0]['issued'] }).exports}
+          />
           <Button onClick={() => setKey(undefined)}>关闭密钥展示</Button>
         </Card>
       ) : null}

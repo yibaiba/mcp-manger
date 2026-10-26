@@ -1,11 +1,15 @@
 import {
   discoverCatalog,
   executeOperation,
-  executeTool,
+  InteractiveClient,
+  toolDispatchFetch,
+  auth,
+  ManagedStdioTransport,
   observeNotifications,
   type Client,
   type McpCatalog,
   type McpOperation,
+  type OAuthClientProvider,
 } from '@platform/mcp';
 import { randomUUID } from 'node:crypto';
 import type { Context } from './runtime.js';
@@ -21,7 +25,23 @@ import {
   type ExtensionAPI,
 } from '@earendil-works/pi-coding-agent';
 const adapterPackage: string = 'pi-mcp-adapter';
-const { createMcpAdapter, getMcpClient } = (await import(adapterPackage)) as {
+const { createMcpAdapter, getMcpClient, configurePlatformEmbedding } = (await import(
+  adapterPackage
+)) as {
+  configurePlatformEmbedding(options: {
+    authorize: (
+      action: () => Promise<'AUTHORIZED' | 'REDIRECT'>,
+    ) => Promise<'AUTHORIZED' | 'REDIRECT'>;
+    wrapFetch: (
+      fetch: typeof globalThis.fetch,
+      authorization?: { provider: OAuthClientProvider; serverUrl: string },
+    ) => typeof globalThis.fetch;
+    capabilities?: Record<string, unknown>;
+    createStdio: (
+      options: ConstructorParameters<typeof ManagedStdioTransport>[0],
+    ) => ManagedStdioTransport;
+    onClient: (client: Client) => void;
+  }): void;
   getMcpClient(options: { pi: ExtensionAPI; name: string }): Client;
   createMcpAdapter(options: { config: Record<string, unknown> }): ExtensionFactory;
 };
@@ -29,6 +49,7 @@ let session: AgentSession | undefined;
 let extension: ExtensionAPI;
 let catalog: McpCatalog | undefined;
 const observed = new WeakSet<Client>();
+const interactive = new WeakMap<Client, InteractiveClient>();
 function client() {
   const current = getMcpClient({ pi: extension, name: server });
   if (!observed.has(current)) {
@@ -42,6 +63,19 @@ function client() {
 let server = '';
 let serverUrl = '';
 const active = new Map<string, AbortController>();
+const authGrants = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+async function authorize(action: () => Promise<'AUTHORIZED' | 'REDIRECT'>) {
+  const id = randomUUID();
+  await new Promise<void>((resolve, reject) => {
+    authGrants.set(id, { resolve, reject });
+    process.send?.({ type: 'auth-acquire', id });
+  });
+  try {
+    return await action();
+  } finally {
+    process.send?.({ type: 'auth-release', id });
+  }
+}
 async function proxy(params: Record<string, unknown>, signal?: AbortSignal) {
   if (!session) throw new Error('Pi bridge is not initialized');
   const tool = session.getToolDefinition('mcp');
@@ -80,7 +114,33 @@ async function dispatch(
 ) {
   if (method === 'initialize') {
     const context = params as Context;
-    server = `u_${context.ownerId}_c_${context.id}`;
+    configurePlatformEmbedding({
+      authorize,
+      wrapFetch: (delegate, authorization) =>
+        toolDispatchFetch(delegate, async (): Promise<Record<string, string>> => {
+          if (!authorization) return {};
+          const { provider, serverUrl } = authorization;
+          let tokens = await provider.tokens();
+          if (tokens?.expires_in !== undefined && tokens.expires_in <= 0) {
+            if ((await auth(provider, { serverUrl, fetchFn: delegate })) !== 'AUTHORIZED')
+              throw new Error('Pi 上游授权已过期，请重新授权');
+            tokens = await provider.tokens();
+          }
+          return tokens ? { Authorization: `Bearer ${tokens.access_token}` } : {};
+        }),
+      capabilities: context.capabilities,
+      createStdio: (options) =>
+        new ManagedStdioTransport({
+          ...options,
+          shutdownGraceMs: context.config.lifecycle?.shutdownGraceMs,
+        }),
+      onClient: (client) =>
+        interactive.set(
+          client,
+          new InteractiveClient(client, Boolean(context.capabilities?.elicitation)),
+        ),
+    });
+    server = `u_${context.ownerId}_c_${context.bindingId ?? context.id}`;
     serverUrl = context.config.url ?? '';
     const directory = process.env.PI_CODING_AGENT_DIR!;
     const settings = SettingsManager.inMemory();
@@ -118,6 +178,7 @@ async function dispatch(
                         oauth: context.config.oauth,
                       }),
                   lifecycle: 'lazy',
+                  roots: false,
                   protocolVersion: context.config.transport === 'sse' ? 'legacy' : 'auto',
                 },
               },
@@ -158,20 +219,37 @@ async function dispatch(
     catalog = await discoverCatalog(client(), signal);
     return method === 'discover' ? catalog.tools : catalog;
   }
+  if (method === 'request' || method === 'call' || method === 'check') {
+    if (!catalog) {
+      await proxy({ connect: server }, signal);
+      catalog = await discoverCatalog(client(), signal);
+    }
+  }
+  if (method === 'check') {
+    if (client().getProtocolEra() === 'modern') await client().discover({ signal });
+    else await client().ping({ signal });
+    return {};
+  }
   if (method === 'request')
     return executeOperation(client(), params.operation as McpOperation, { signal, onprogress });
+  if (method === 'interaction.cancel')
+    return interactive.get(client())!.cancel(String(params.requestState));
   if (method === 'call') {
     const tool = catalog?.tools.find((tool) => tool.name === params.name);
     if (!tool) throw new Error('Pi tool has not been discovered');
-    return executeTool(client(), {
+    return interactive.get(client())!.call({
       tool,
       arguments: params.arguments as Record<string, unknown>,
       signal,
       onprogress,
+      requestState: params.requestState as string | undefined,
+      inputResponses: params.inputResponses as Record<string, unknown> | undefined,
     });
   }
   if (method === 'action') {
     if (params.action === 'status') return proxy({ server }, signal);
+    if (!process.env.PI_MCP_ADAPTER_OAUTH_FILE_KEY)
+      throw new Error('Pi OAuth 需要配置 PI_MCP_ADAPTER_OAUTH_FILE_KEY（32 随机字节的 base64）');
     if (params.action === 'logout') {
       await session.prompt(`/mcp-adapter logout ${server}`);
       const oauthModule: string = 'pi-mcp-adapter/oauth';
@@ -200,6 +278,13 @@ process.on(
       active.get(message.id)?.abort();
       return;
     }
+    if (message.type === 'auth-granted') {
+      const grant = authGrants.get(message.id);
+      authGrants.delete(message.id);
+      if ('error' in message) grant?.reject(new Error(String(message.error)));
+      else grant?.resolve();
+      return;
+    }
     const abort = new AbortController();
     active.set(message.id, abort);
     void dispatch(message.method, message.params, abort.signal, message.id)
@@ -215,7 +300,18 @@ process.on(
   },
 );
 process.on('disconnect', () => {
+  for (const grant of authGrants.values())
+    grant.reject(new Error('Pi authorization channel disconnected'));
+  authGrants.clear();
   for (const abort of active.values()) abort.abort();
-  session?.dispose();
-  process.exit(0);
+  void (async () => {
+    await session?.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
+    session?.dispose();
+  })().then(
+    () => process.exit(0),
+    (error: unknown) => {
+      console.error('Pi bridge disconnect cleanup failed', error);
+      process.exit(1);
+    },
+  );
 });
