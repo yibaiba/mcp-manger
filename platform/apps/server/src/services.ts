@@ -34,7 +34,12 @@ export function createServices(db: Database, config: Config) {
   const vault = new Vault(config.ENCRYPTION_KEY);
   const events = new RuntimeEvents();
   const broker = new DeviceBroker((id, message) => reportDevice(db, id, message));
-  const devices = new DeviceService(db, broker);
+  const devices = new DeviceService({
+    db,
+    broker,
+    vault: new Vault(config.DEVICE_AUTH_ENCRYPTION_KEY),
+    platformOrigin: new URL(config.PUBLIC_URL).origin,
+  });
   const upstreamOAuth = new UpstreamOAuth({
     db,
     vault,

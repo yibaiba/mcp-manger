@@ -266,10 +266,79 @@ try {
     (value) => value.includes('local conflict choice'),
     'History recovery did not restore the previous content',
   );
+  const beforeRePair = await h.services.local.repository.list(account.ownerId, device.deviceId);
+  await platform.setViewportSize({ width: 1280, height: 900 });
+  await platform.reload();
+  await platform.getByRole('button', { name: '重新配对', exact: true }).click();
+  await platform.getByText('生成重配码会立即断开此设备', { exact: false }).waitFor();
+  await platform.getByRole('button', { name: '取消', exact: true }).click();
+  assert.equal(h.services.broker.online(device.deviceId), true);
+  await platform.getByRole('button', { name: '重新配对', exact: true }).click();
+  const rePairResponse = platform.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/devices/${device.deviceId}/re-pairings`) &&
+      response.request().method() === 'POST',
+  );
+  await platform.getByRole('button', { name: '确认断线并生成重配码', exact: true }).click();
+  const { code: rePairCode } = await (await rePairResponse).json();
+  await platform
+    .getByText(
+      `connector re-pair --config connector.json --server ${h.baseURL} --device-id ${device.deviceId}`,
+      { exact: true },
+    )
+    .waitFor();
+  await platform.getByText('待重新配对', { exact: true }).waitFor();
+  assert.equal(h.services.broker.online(device.deviceId), false);
+  await platform.screenshot({
+    path: join(screenshots, 'device-re-pair-pending.png'),
+    fullPage: true,
+  });
+  await stop();
+  const rePairProcess = spawn(
+    resolve('connector/bin/connector'),
+    ['re-pair', '--config', pairedPath],
+    { stdio: ['pipe', 'ignore', 'pipe'] },
+  );
+  let rePairOutput = '';
+  rePairProcess.stderr.on('data', (chunk) => {
+    rePairOutput += chunk;
+  });
+  rePairProcess.stdin.end(`${rePairCode}\n`);
+  const rePairExit = await new Promise((resolve, reject) => {
+    rePairProcess.once('error', reject);
+    rePairProcess.once('exit', resolve);
+  });
+  assert.equal(rePairExit, 0, rePairOutput);
+  const newConfig = JSON.parse(await readFile(pairedPath, 'utf8'));
+  assert.equal(newConfig.deviceId, device.deviceId);
+  assert.equal(newConfig.credentialVersion, device.credentialVersion + 1);
+  assert.ok(!rePairOutput.includes(newConfig.deviceSecret));
+  await start(['run', '--config', pairedPath]);
+  await until(
+    () => h.services.broker.hasCapability(device.deviceId, 'local-sync'),
+    Boolean,
+    'Re-paired connector did not authenticate',
+  );
+  await platform.reload();
+  await platform.getByText('在线', { exact: true }).waitFor();
+  const afterRePair = await h.services.local.repository.list(account.ownerId, device.deviceId);
+  assert.deepEqual(
+    afterRePair.map((row) => row.id).sort(),
+    beforeRePair.map((row) => row.id).sort(),
+  );
+  for (const row of afterRePair)
+    assert.deepEqual(
+      row.baseline,
+      beforeRePair.find((previous) => previous.id === row.id).baseline,
+    );
+  await platform.screenshot({
+    path: join(screenshots, 'device-re-pair-online.png'),
+    fullPage: true,
+  });
   assert.equal(mcp.count(), 0);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: standalone offline editor, MCP/Skill selection, persisted pairing, platform writeback, conflict resolution, recovery UI, keyboard and 375px layouts; no business calls',
+    'PASS: standalone offline editor, MCP/Skill selection, persisted pairing, platform writeback, conflict resolution, recovery UI, keyboard and 375px layouts, re-pair confirmation, pending state and real Go recovery with preserved MCP/Skill bindings; no business calls',
   );
 } catch (error) {
   if (browser)

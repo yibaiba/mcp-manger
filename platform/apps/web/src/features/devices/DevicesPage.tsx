@@ -1,3 +1,4 @@
+import { RePairDevice } from './RePairDevice.js';
 import { Disclosure } from '../../components/shared/Disclosure.js';
 import { Card } from '../../components/ui/card.js';
 import { Input } from '../../components/ui/input.js';
@@ -18,6 +19,10 @@ import {
   value,
 } from '../../components/shared/Controls.js';
 export default function DevicesPage() {
+  const platform = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api<{ platformOrigin: string }>('/me'),
+  });
   const devices = useQuery({
     queryKey: ['devices'],
     queryFn: () => api<Device[]>('/devices'),
@@ -34,7 +39,7 @@ export default function DevicesPage() {
           <p>连接器主动连接平台，设备无需开放公网端口。</p>
         </div>
       </div>
-      <Feedback error={devices.error} />
+      <Feedback error={devices.error ?? platform.error} />
       <div className="overview-grid">
         <Card className="panel padded">
           <h2>配对新设备</h2>
@@ -53,11 +58,11 @@ export default function DevicesPage() {
               <Input name="name" required placeholder="例如：设计工作站" />
             </Field>
           </Form>
-          {pairing ? (
+          {pairing && platform.data ? (
             <div className="result">
               <p>在设备上运行连接器，将配对码粘贴到提示符中。</p>
               <Code
-                value={`connector pair --server ${window.location.origin} --config connector.json`}
+                value={`connector pair --server ${platform.data.platformOrigin} --config connector.json`}
               />
               <Code value={pairing.code} />
               <small>有效期至 {date(pairing.expiresAt)}，仅可使用一次。</small>
@@ -95,7 +100,17 @@ export default function DevicesPage() {
                     {device.version ?? '—'}
                   </small>
                 </div>
-                <Status value={device.revoked ? 'revoked' : device.online ? 'online' : 'offline'} />
+                <Status
+                  value={
+                    device.revoked
+                      ? 'revoked'
+                      : device.pairingRequired
+                        ? 'pairing_required'
+                        : device.online
+                          ? 'online'
+                          : 'offline'
+                  }
+                />
               </div>
               <div className="row-actions">
                 {!device.revoked ? (
@@ -115,6 +130,9 @@ export default function DevicesPage() {
                   </Action>
                 ) : null}
               </div>
+              {!device.revoked && platform.data ? (
+                <RePairDevice device={device} platformOrigin={platform.data.platformOrigin} />
+              ) : null}
               {device.services.length ? (
                 <Disclosure title="MCP 服务诊断">
                   <Code value={device.services} />

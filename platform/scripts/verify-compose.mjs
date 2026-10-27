@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { verifyDeviceChannel } from './verify-device-channel.mjs';
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { request as httpsRequest } from 'node:https';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { setTimeout } from 'node:timers/promises';
@@ -12,11 +14,12 @@ const cwd = fileURLToPath(new URL('../', import.meta.url));
 await mkdir(resolve(cwd, '.data'), { recursive: true });
 const directory = await mkdtemp(resolve(cwd, '.data/compose-acceptance-'));
 const project = `platform-acceptance-${Date.now()}`;
-const origin = 'http://localhost:54330';
+const origin = 'https://localhost:54330';
+let certificate;
 const sandboxOrigin = 'http://localhost:54332';
 const environment = {
   ...process.env,
-  DOMAIN: 'http://localhost:80',
+  DOMAIN: 'localhost',
   APPS_DOMAIN: 'http://localhost:4302',
   PUBLIC_URL: origin,
   WEB_ORIGIN: origin,
@@ -24,6 +27,7 @@ const environment = {
   POSTGRES_PASSWORD: randomBytes(24).toString('hex'),
   BETTER_AUTH_SECRET: randomBytes(32).toString('hex'),
   ENCRYPTION_KEY: randomBytes(32).toString('base64'),
+  DEVICE_AUTH_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
   PI_MCP_ADAPTER_OAUTH_FILE_KEY: randomBytes(32).toString('hex'),
   ALLOW_REGISTRATION: 'true',
   PI_ENABLED: 'false',
@@ -39,7 +43,7 @@ await writeFile(
   web:
     image: mcp-platform-web:latest
     ports: !override
-      - '127.0.0.1:54330:80'
+      - '127.0.0.1:54330:443'
       - '127.0.0.1:54332:4302'
 `,
 );
@@ -54,7 +58,27 @@ async function compose(args, timeout = 120_000) {
   return result.stdout;
 }
 async function request(url, options) {
-  return fetch(url, { ...options, signal: AbortSignal.timeout(5000) });
+  if (!String(url).startsWith('https:'))
+    return fetch(url, { ...options, signal: AbortSignal.timeout(5000) });
+  return new Promise((resolve, reject) => {
+    const req = httpsRequest(
+      url,
+      { ...options, ca: certificate, signal: AbortSignal.timeout(5000) },
+      (incoming) => {
+        const chunks = [];
+        incoming.on('data', (chunk) => chunks.push(chunk));
+        incoming.on('error', reject);
+        incoming.on('end', () => {
+          const headers = new Headers();
+          for (let index = 0; index < incoming.rawHeaders.length; index += 2)
+            headers.append(incoming.rawHeaders[index], incoming.rawHeaders[index + 1]);
+          resolve(new Response(Buffer.concat(chunks), { status: incoming.statusCode, headers }));
+        });
+      },
+    );
+    req.on('error', reject);
+    req.end(options?.body);
+  });
 }
 async function waitForHealth() {
   const deadline = Date.now() + 60_000;
@@ -115,7 +139,8 @@ async function verifyLocalManagement(cookie) {
     body: JSON.stringify({ code }),
   });
   assert.equal(paired.status, 201);
-  const { deviceId } = await paired.json();
+  const device = await paired.json();
+  const { deviceId } = device;
   const local = await request(`${origin}/api/v1/devices/${deviceId}/local`, { headers });
   assert.equal(local.status, 200);
   const state = await local.json();
@@ -124,6 +149,17 @@ async function verifyLocalManagement(cookie) {
   assert.deepEqual(state.platformOperations, []);
   assert.ok(state.issues.some((issue) => issue.includes('离线')));
   console.log('PASS: migrated local management tables and owned offline device API');
+  await verifyDeviceChannel({
+    headers,
+    device,
+    directory,
+    origin,
+    request,
+    restartProxy: async () => {
+      await compose(['restart', 'web']);
+      await waitForHealth();
+    },
+  });
 }
 async function verifySandbox() {
   const response = await request(`${sandboxOrigin}/sandbox?parent=${encodeURIComponent(origin)}`);
@@ -157,6 +193,42 @@ try {
   await compose(['run', '--rm', '--no-deps', '-T', 'server', 'pnpm', 'db:migrate']);
   await compose(['run', '--rm', '--no-deps', '-T', 'server', 'pnpm', 'db:migrate']);
   await compose(['up', '-d', '--no-build', 'server', 'web']);
+  await execute(
+    'docker',
+    [
+      'compose',
+      '-p',
+      project,
+      '-f',
+      'compose.yaml',
+      '-f',
+      override,
+      'exec',
+      '-T',
+      'web',
+      'sh',
+      '-c',
+      'while [ ! -f /data/caddy/pki/authorities/local/root.crt ]; do sleep 0.1; done',
+    ],
+    { cwd, env: environment, timeout: 10_000 },
+  );
+  await execute(
+    'docker',
+    [
+      'compose',
+      '-p',
+      project,
+      '-f',
+      'compose.yaml',
+      '-f',
+      override,
+      'cp',
+      'web:/data/caddy/pki/authorities/local/root.crt',
+      resolve(directory, 'caddy-root.crt'),
+    ],
+    { cwd, env: environment, timeout: 10_000 },
+  );
+  certificate = await readFile(resolve(directory, 'caddy-root.crt'));
   await waitForHealth();
   await verifyManagement();
   await verifySandbox();

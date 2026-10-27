@@ -27,6 +27,7 @@ export async function harness(options: { webOrigin?: string } = {}) {
     ALLOW_REGISTRATION: 'true',
     BETTER_AUTH_SECRET: randomBytes(32).toString('hex'),
     ENCRYPTION_KEY: randomBytes(32).toString('base64'),
+    DEVICE_AUTH_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
     PI_MCP_ADAPTER_OAUTH_FILE_KEY: randomBytes(32).toString('base64'),
     PUBLIC_URL: 'http://localhost:4300',
     WEB_ORIGIN: options.webOrigin ?? 'http://localhost:4301',

@@ -65,10 +65,11 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
   app.on(['GET', 'POST'], '/api/v1/auth/*', (c) => auth.handler(c.req.raw));
   app.post('/api/v1/devices/pair', async (c) => {
     const input = z
-      .object({ code: z.string().min(1) })
+      .object({ code: z.string().min(1), deviceId: z.uuid().optional() })
       .strict()
       .parse(await c.req.json());
-    return c.json(await s.devices.pair(input.code), 201);
+    c.header('Cache-Control', 'no-store');
+    return c.json(await s.devices.pair(input.code, input.deviceId), 201);
   });
   registerAgentOAuth(app, deps);
   registerTransfers(app, deps);
@@ -120,7 +121,11 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     await next();
   });
   app.get('/api/v1/me', (c) =>
-    c.json({ userId: owner(c), piEnabled: config.PI_ENABLED === 'true' }),
+    c.json({
+      userId: owner(c),
+      piEnabled: config.PI_ENABLED === 'true',
+      platformOrigin: new URL(config.PUBLIC_URL).origin,
+    }),
   );
   app.route('/api/v1/devices', deviceRoutes(s.devices));
   app.route('/api/v1/devices', localRoutes(s.local));

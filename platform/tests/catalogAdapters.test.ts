@@ -27,7 +27,8 @@ beforeAll(async () => {
     JSON.stringify({
       server: h.baseURL,
       deviceId,
-      token: device.token,
+      deviceSecret: device.deviceSecret,
+      credentialVersion: device.credentialVersion,
       localDataDir: join(root, 'local-state'),
       skillRoots: { claude: join(root, 'skills') },
       artifactRoots: { workspace: root },

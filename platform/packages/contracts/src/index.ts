@@ -1,3 +1,4 @@
+export * from './deviceAuth.js';
 import { z } from 'zod';
 export { clientPresets, type ClientPreset } from './clientPresets.js';
 export * from './localManagement.js';

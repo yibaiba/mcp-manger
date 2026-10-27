@@ -22,7 +22,8 @@ export const devices = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     ownerId: owner(),
     name: text('name').notNull(),
-    tokenHash: text('token_hash').notNull().unique(),
+    secretEncrypted: text('secret_encrypted'),
+    credentialVersion: integer('credential_version').notNull().default(1),
     revoked: boolean('revoked').default(false).notNull(),
     os: text('os'),
     hostname: text('hostname'),
@@ -37,6 +38,7 @@ export const devices = pgTable(
   (t) => [index('devices_owner').on(t.ownerId)],
 );
 export const pairings = pgTable('pairings', {
+  deviceId: uuid('device_id').references(() => devices.id, { onDelete: 'cascade' }),
   id: uuid('id').primaryKey().defaultRandom(),
   ownerId: owner(),
   name: text('name').notNull(),

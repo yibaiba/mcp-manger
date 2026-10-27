@@ -7,6 +7,10 @@ export const envSchema = z.object({
   WEB_ORIGIN: z.url(),
   BETTER_AUTH_SECRET: z.string().min(32),
   ENCRYPTION_KEY: z.string(),
+  DEVICE_AUTH_ENCRYPTION_KEY: z.string().refine((value) => {
+    const key = Buffer.from(value, 'base64');
+    return key.length === 32 && key.toString('base64') === value;
+  }, 'DEVICE_AUTH_ENCRYPTION_KEY must be canonical base64 for 32 bytes'),
   APPS_ORIGIN: z.url().optional(),
   APPS_PORT: z.coerce.number().int().positive().default(4302),
   PORT: z.coerce.number().int().positive().default(4300),

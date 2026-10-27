@@ -57,6 +57,7 @@ export function Status({ value }: { value: string }) {
     offline: '离线',
     cancelled: '已取消',
     revoked: '已撤销',
+    pairing_required: '待重新配对',
     installed: '已安装',
     waiting: '等待上游交互',
     waiting_authorization: '等待平台授权',

@@ -1,20 +1,15 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"github.com/kardianos/service"
 	"log"
-	"mcplatform/connector/internal/agent"
-	"mcplatform/connector/internal/config"
 	"mcplatform/connector/internal/install"
 	"mcplatform/connector/internal/processtree"
-	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -27,14 +22,16 @@ func main() {
 }
 func execute() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: connector pair|manage|connect|run|install|uninstall --config path [--server URL] [--scope user|system]")
+		return fmt.Errorf("usage: connector pair|re-pair|manage|connect|run|install|uninstall --config path [--server URL] [--scope user|system]")
 	}
 	action := os.Args[1]
 	flags := flag.NewFlagSet(action, flag.ContinueOnError)
 	grace := flags.Duration("grace", 5*time.Second, "managed process shutdown grace period")
 	dataDir := flags.String("data-dir", "", "absolute local management storage directory")
 	path := flags.String("config", "connector.json", "configuration path")
+	certificatePath := flags.String("ca-cert", "", "additional platform CA certificate PEM file")
 	server := flags.String("server", "", "platform origin")
+	deviceID := flags.String("device-id", "", "existing device ID when configuration is lost")
 	scope := flags.String("scope", "user", "user for desktop apps; system for background services")
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return err
@@ -42,21 +39,14 @@ func execute() error {
 	if action == "stdio-host" {
 		return processtree.Host(flags.Args(), *grace)
 	}
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	if action == "pair" {
-		fmt.Fprintln(os.Stderr, "Paste pairing code:")
-		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-		if err != nil {
-			return err
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		c, err := agent.Pair(ctx, client, *server, strings.TrimSpace(line))
-		if err != nil {
-			return err
-		}
-		return config.Save(*path, c)
+	client, err := newHTTPClient(*certificatePath)
+	if err != nil {
+		return err
 	}
+	if action == "pair" || action == "re-pair" {
+		return pairingCommand(client, pairingOptions{Action: action, Path: *path, Server: *server, DeviceID: *deviceID})
+	}
+
 	program := &install.Program{Run: func(ctx context.Context) error {
 		return manage(ctx, managementOptions{ConfigPath: *path, DataDir: *dataDir, Client: client, Offline: action == "manage"})
 	}}
