@@ -36,11 +36,18 @@ beforeAll(async () => {
         token: device.token,
         skillRoots: { claude: join(root, '.claude', 'skills') },
         artifactRoots: { workspace: root },
+        localDataDir: join(root, 'local-management'),
       }),
       { mode: 0o600 },
     );
     const child = spawn(resolve('connector/bin/connector'), ['run', '--config', config], {
       stdio: ['ignore', 'ignore', 'pipe'],
+      env: {
+        ...process.env,
+        HOME: h.directory,
+        CODEX_HOME: join(h.directory, 'empty-codex'),
+        PI_CODING_AGENT_DIR: join(h.directory, 'empty-pi'),
+      },
     });
     child.stderr?.on('data', (data: Buffer) => process.stderr.write(data));
     processes.push(child);

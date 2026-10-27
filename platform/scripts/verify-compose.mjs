@@ -97,7 +97,33 @@ async function verifyManagement() {
   });
   assert.equal(connections.status, 200);
   assert.deepEqual(await connections.json(), []);
+  await verifyLocalManagement(cookie);
   console.log('PASS: Caddy static web, database health, authentication and management API');
+}
+async function verifyLocalManagement(cookie) {
+  const headers = { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' };
+  const pairing = await request(`${origin}/api/v1/devices/pairings`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ name: 'Disposable local management device' }),
+  });
+  assert.equal(pairing.status, 201);
+  const { code } = await pairing.json();
+  const paired = await request(`${origin}/api/v1/devices/pair`, {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  assert.equal(paired.status, 201);
+  const { deviceId } = await paired.json();
+  const local = await request(`${origin}/api/v1/devices/${deviceId}/local`, { headers });
+  assert.equal(local.status, 200);
+  const state = await local.json();
+  assert.deepEqual(state.resources, {});
+  assert.deepEqual(state.bindings, []);
+  assert.deepEqual(state.platformOperations, []);
+  assert.ok(state.issues.some((issue) => issue.includes('离线')));
+  console.log('PASS: migrated local management tables and owned offline device API');
 }
 async function verifySandbox() {
   const response = await request(`${sandboxOrigin}/sandbox?parent=${encodeURIComponent(origin)}`);

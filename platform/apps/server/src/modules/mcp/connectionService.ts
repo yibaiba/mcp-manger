@@ -141,6 +141,11 @@ export class ConnectionService {
   }
   async validate(ownerId: string, input: unknown) {
     const config = connectionInput.parse(input);
+    if (config.deviceResourceId)
+      await this.deps.devices.assertLocalReference(ownerId, {
+        deviceId: config.deviceId!,
+        resourceId: config.deviceResourceId,
+      });
     if (config.source === 'openapi' && config.openapi) {
       if (config.health.enabled)
         throw new AppError('CHECK_UNSUPPORTED', 'OpenAPI 来源不提供 MCP 健康检查，请关闭该选项');
@@ -171,6 +176,21 @@ export class ConnectionService {
   }
   async create(ownerId: string, input: unknown) {
     return requireValue((await this.createMany(ownerId, [input]))[0]);
+  }
+  async createIdentified(ownerId: string, input: { id: string; config: unknown }) {
+    const config = await this.validate(ownerId, input.config);
+    await this.deps.db
+      .insert(connections)
+      .values({
+        id: input.id,
+        ownerId,
+        name: config.name,
+        adapter: config.adapter,
+        deviceId: config.deviceId,
+        config: this.deps.vault.seal(config, `${ownerId}:${input.id}`),
+      })
+      .onConflictDoNothing();
+    return this.owned(ownerId, input.id);
   }
   async createMany(ownerId: string, inputs: unknown[]) {
     const configs = await Promise.all(inputs.map((input) => this.validate(ownerId, input)));

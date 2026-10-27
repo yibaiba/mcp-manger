@@ -7,26 +7,49 @@ export async function fixtureConnector(h: Awaited<ReturnType<typeof harness>>, o
   const pairing = await h.services.devices.createPairing(ownerId, 'Capability connector');
   const device = await h.services.devices.pair(pairing.code);
   const path = join(h.directory, `${device.deviceId}.json`);
-  await writeFile(path, JSON.stringify({ server: h.baseURL, ...device }), { mode: 0o600 });
-  const child = spawn(resolve('connector/bin/connector'), ['run', '--config', path], {
-    stdio: ['ignore', 'ignore', 'pipe'],
-  });
-  child.stderr.on('data', (data: Buffer) => process.stderr.write(data));
-  const deadline = Date.now() + 5000;
-  while (!h.services.broker.hasCapability(device.deviceId, 'sessions')) {
-    if (child.exitCode !== null || Date.now() > deadline) {
-      child.kill('SIGINT');
-      throw new Error('Connector did not declare session capability');
+  await writeFile(
+    path,
+    JSON.stringify({
+      server: h.baseURL,
+      ...device,
+      localDataDir: join(h.directory, `${device.deviceId}-local`),
+    }),
+    { mode: 0o600 },
+  );
+  let child: ReturnType<typeof spawn>;
+  async function start() {
+    child = spawn(resolve('connector/bin/connector'), ['run', '--config', path], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      env: {
+        ...process.env,
+        HOME: h.directory,
+        CODEX_HOME: join(h.directory, 'empty-codex'),
+        PI_CODING_AGENT_DIR: join(h.directory, 'empty-pi'),
+      },
+    });
+    child.stderr!.on('data', (data: Buffer) => process.stderr.write(data));
+    const deadline = Date.now() + 5000;
+    while (!h.services.broker.hasCapability(device.deviceId, 'sessions')) {
+      if (child.exitCode !== null || Date.now() > deadline) {
+        child.kill('SIGINT');
+        throw new Error('Connector did not declare session capability');
+      }
+      await pause(20);
     }
-    await pause(20);
   }
+  async function close() {
+    if (child.exitCode !== null) return;
+    const done = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+    child.kill('SIGINT');
+    await done;
+  }
+  await start();
   return {
     deviceId: device.deviceId,
-    close: async () => {
-      if (child.exitCode !== null) return;
-      const done = new Promise<void>((resolve) => child.once('exit', () => resolve()));
-      child.kill('SIGINT');
-      await done;
+    close,
+    restart: async () => {
+      await close();
+      await start();
     },
   };
 }

@@ -10,6 +10,7 @@ import type { Config } from './config.js';
 import { AppError } from './shared/errors.js';
 import { bearer, owner, paramId, type ApiEnv } from './shared/http.js';
 import { deviceRoutes } from './modules/devices/routes.js';
+import { localRoutes } from './modules/local/routes.js';
 import { connectionRoutes, toolRoutes } from './modules/mcp/routes.js';
 import { contentRoutes } from './modules/mcp/contentRoutes.js';
 import { profileRoutes } from './modules/agent-profiles/routes.js';
@@ -122,6 +123,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     c.json({ userId: owner(c), piEnabled: config.PI_ENABLED === 'true' }),
   );
   app.route('/api/v1/devices', deviceRoutes(s.devices));
+  app.route('/api/v1/devices', localRoutes(s.local));
   app.route(
     '/api/v1/connections',
     connectionRoutes(s.connections, () => s.access.changed()),

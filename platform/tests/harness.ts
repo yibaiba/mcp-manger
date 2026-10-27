@@ -13,7 +13,7 @@ import { createApp } from '../apps/server/src/app.js';
 import { createServices } from '../apps/server/src/services.js';
 import { attachDeviceSocket } from '../apps/server/src/deviceSocket.js';
 dotenv({ path: '.env', quiet: true });
-export async function harness() {
+export async function harness(options: { webOrigin?: string } = {}) {
   if (!process.env.DATABASE_URL)
     throw new Error('Tests require a migrated PostgreSQL DATABASE_URL');
   const directory = await mkdtemp(join(tmpdir(), 'platform-test-'));
@@ -29,7 +29,7 @@ export async function harness() {
     ENCRYPTION_KEY: randomBytes(32).toString('base64'),
     PI_MCP_ADAPTER_OAUTH_FILE_KEY: randomBytes(32).toString('base64'),
     PUBLIC_URL: 'http://localhost:4300',
-    WEB_ORIGIN: 'http://localhost:4301',
+    WEB_ORIGIN: options.webOrigin ?? 'http://localhost:4301',
   });
   const server = serve({ fetch: (request, env) => app.fetch(request, env), port: 0 });
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -91,6 +91,7 @@ export async function harness() {
     signup,
     async close() {
       services.broker.close();
+      await services.local.close();
       sockets.close();
       await services.pi.close();
       await services.gateway.close();

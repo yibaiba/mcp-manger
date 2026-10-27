@@ -74,8 +74,17 @@ func (r *Runner) session(parent context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err = r.send(ctx, conn, map[string]any{"v": 1, "type": "hello", "os": runtime.GOOS, "version": Version, "hostname": hostname, "capabilities": []string{"sessions", "health", "oauth", "elicitation", "apps"}}); err != nil {
+	if err = r.send(ctx, conn, map[string]any{"v": 1, "type": "hello", "os": runtime.GOOS, "version": Version, "hostname": hostname, "capabilities": []string{"sessions", "health", "oauth", "elicitation", "apps", "local-management", "local-sync"}}); err != nil {
 		return err
+	}
+	if handler, ok := r.Handler.(interface{ SetLocalNotifier(func()) }); ok {
+		handler.SetLocalNotifier(func() {
+			if err := r.send(ctx, conn, map[string]any{"v": 1, "type": "local.changed"}); err != nil {
+				r.Logger.Printf("Local change notification: %v", err)
+				conn.CloseNow()
+			}
+		})
+		defer handler.SetLocalNotifier(nil)
 	}
 	if handler, ok := r.Handler.(interface {
 		SetNotifier(func(mcpclient.Notification))

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 export { clientPresets, type ClientPreset } from './clientPresets.js';
+export * from './localManagement.js';
 export const PROTOCOL_VERSION = 1;
 export const CALL_TIMEOUT_MS = 60_000;
 export const HEARTBEAT_MS = 15_000;
@@ -49,6 +50,14 @@ export const connectionInput = z
       .optional(),
     adapter: z.enum(['direct', 'device', 'pi']),
     deviceId: idSchema.optional(),
+    deviceResourceDigest: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
+    deviceResourceId: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
     transport: z.enum(['http', 'sse', 'stdio']),
     mode: z.enum(['existing', 'managed']),
     url: httpUrl.optional(),
@@ -105,6 +114,19 @@ export const connectionInput = z
       return;
     }
     if (v.adapter === 'device' && !v.deviceId) fail('设备连接必须选择设备');
+    if (v.deviceResourceId) {
+      if (v.adapter !== 'device' || v.source !== 'mcp') fail('本地资源引用必须使用设备 MCP 连接');
+      if (
+        v.command ||
+        v.url ||
+        v.args.length ||
+        Object.keys(v.env).length ||
+        Object.keys(v.headers).length ||
+        v.oauth
+      )
+        fail('本地资源由设备解析，平台不得保存其命令或凭证');
+      return;
+    }
     if (v.adapter !== 'device' && v.deviceId) fail('平台执行的连接不能关联设备');
     if (v.adapter !== 'device' && v.mode === 'managed' && v.transport !== 'stdio')
       fail('HTTP/SSE 托管启动请选择设备连接器；平台支持托管 stdio 进程');
@@ -153,6 +175,7 @@ export const callInput = z
   })
   .strict();
 export const deviceResponse = z.discriminatedUnion('type', [
+  z.object({ v: z.literal(1), type: z.literal('local.changed') }).strict(),
   z
     .object({
       v: z.literal(1),
@@ -215,7 +238,8 @@ export type DeviceRequest = {
     | 'close'
     | 'skill.install'
     | 'artifact.receive'
-    | 'artifact.send';
+    | 'artifact.send'
+    | 'local.request';
   deadline: string;
   params: Record<string, unknown>;
 };

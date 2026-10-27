@@ -97,6 +97,14 @@ stdio 的进程凭证通过 `env` 配置；上游 HTTP OAuth 端点不适用于 
 
 Agent 使用原接入密钥或 OAuth token 对 **`GET /mcp/:profileId/artifacts/:artifactId`** 发起授权下载。仅允许 `profile.artifactIds` 中的产物，响应流带 Content-Length 和 X-Content-SHA256。把产物 ID、文件名和哈希交给 Agent，Agent 下载后再次核对哈希；该接口不把整个文件塞进模型上下文。
 
+## 本机资源管理
+
+`GET /devices/:id/local` 返回资源清单、绑定和操作记录；离线时明确返回上次同步副本。`POST /devices/:id/local/request` 代理共享管理用例，`POST /devices/:id/local/sync` 启动持久核对操作，`POST /devices/:id/local/bindings/:bindingId` 更新副本、解决冲突、确认删除或解除同步。全部校验设备归属。
+
+写操作携带 `expectedRevision` / `revision` 和 `operationId`，文件修改另含 `expectedDigest`。扫描和连接 / 停止返回操作 ID，由 `operation` 查询结果，不作为业务工具调用处理。MCP 固定值以设备 `local://` 引用保留在本机；平台不能提交明文凭证字段。本机 `/local-api/v1` 需要独立会话、同源与 CSRF 校验，备份与身份绑定仅限本机。
+
+完整动作、状态、幂等和凭证语义见 [本机管理与同步](local-management.md)。
+
 ## 设备通道 v1
 
 `WSS /api/v1/devices/channel`，Authorization 设备令牌；浏览器 Origin 不允许用于设备通道。主动出站，无需设备监听公网端口。
@@ -112,7 +120,7 @@ Agent 使用原接入密钥或 OAuth token 对 **`GET /mcp/:profileId/artifacts/
 }
 ```
 
-method：discover/catalog/call/mcp.request/check/interaction.cancel/close/oauth.request/skill.install/artifact.send/artifact.receive。`catalog` 返回工具、Prompts、Resources、模板、服务说明、协议版本和 capabilities；`mcp.request` 的 params.operation 为 `{method,params}`，支持 prompts/get、resources/read、resources/subscribe、resources/unsubscribe。MCP 请求另含 sessionId/bindingId/capabilities/correlationId；旧连接器仍能处理原有请求，需要新能力时返回升级提示。设备响应 `{v:1,type:"result",id,result}` 或 `{v:1,type:"result",id,error:{code,message}}`；取消消息 `{v:1,type:"cancel",id}`。设备 hello 含 os/hostname/version 和能力列表；每 15 秒 heartbeat 报告服务状态；通道掉线三秒后重连，仅恢复连接，不重放请求。服务端心跳失联中断 pending 请求，明确标记结果未知。
+method：discover/catalog/call/mcp.request/check/interaction.cancel/close/oauth.request/skill.install/artifact.send/artifact.receive/local.request。`catalog` 返回工具、Prompts、Resources、模板、服务说明、协议版本和 capabilities；`mcp.request` 的 params.operation 为 `{method,params}`，支持 prompts/get、resources/read、resources/subscribe、resources/unsubscribe。MCP 请求另含 sessionId/bindingId/capabilities/correlationId；旧连接器仍能处理原有请求，需要新能力时返回升级提示。设备响应 `{v:1,type:"result",id,result}` 或 `{v:1,type:"result",id,error:{code,message}}`；取消消息 `{v:1,type:"cancel",id}`。设备 hello 含 os/hostname/version 和能力列表；每 15 秒 heartbeat 报告服务状态；通道掉线三秒后重连，仅恢复连接，不重放请求。服务端心跳失联中断 pending 请求，明确标记结果未知。
 
 协议源码：`packages/contracts/src/index.ts`、`connector/internal/agent/protocol.go`。自动化契约测试覆盖封包、真 WebSocket、两进程路由、取消和断线。
 
@@ -141,3 +149,5 @@ Profile 新增 `revision`、`requestable:{toolIds,contentIds,artifactIds}` 与 `
 交接输入由用户选择 sourceTaskId、targetProfileId、targetRevision、summary、artifactIds、mode（pi/external），外部模式还需目标 Profile 的有效 credentialId。创建携带 idempotencyKey；预览不是授权凭证，保存和执行均重新核对内容来源、目标修订和权限。保存与执行分离，执行事务预留唯一任务；重复请求返回同一结果，失败保留状态，不自动重试。导出不调用模型，不含平台密钥、公开下载令牌、原始会话或 Apps 状态。外部产物入口仍需选定凭证鉴权；Pi 新任务通过 `platform_artifacts_catalog/read` 在当前任务权限内读取指定字节区间。
 
 仅单进程维护运行调用、订阅与 Apps。撤销会结束依赖失效授权的活动，不能保证撤回已派发操作；未知结果明确记录，不宣称回滚或自动重放。
+
+连接器 0.2.0 声明 `local-management` / `local-sync`；`{v:1,type:"local.changed"}` 通知触发核对所选资源。来源、清单和编辑经 `local.request`，旧连接器缺少能力时明确要求升级。

@@ -3,6 +3,11 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+execFileSync(
+  process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+  ['--filter', 'web', 'build:local'],
+  { cwd: fileURLToPath(new URL('../', import.meta.url)), stdio: 'inherit', timeout: 60_000 },
+);
 const root = fileURLToPath(new URL('../connector/', import.meta.url));
 mkdirSync(join(root, 'bin'), { recursive: true });
 const sums = [];

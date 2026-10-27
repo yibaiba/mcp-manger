@@ -9,9 +9,7 @@ import (
 	"log"
 	"mcplatform/connector/internal/agent"
 	"mcplatform/connector/internal/config"
-	"mcplatform/connector/internal/files"
 	"mcplatform/connector/internal/install"
-	"mcplatform/connector/internal/mcpclient"
 	"mcplatform/connector/internal/processtree"
 	"net/http"
 	"os"
@@ -29,11 +27,12 @@ func main() {
 }
 func execute() error {
 	if len(os.Args) < 2 {
-		return fmt.Errorf("usage: connector pair|run|install|uninstall --config path [--server URL] [--scope user|system]")
+		return fmt.Errorf("usage: connector pair|manage|connect|run|install|uninstall --config path [--server URL] [--scope user|system]")
 	}
 	action := os.Args[1]
 	flags := flag.NewFlagSet(action, flag.ContinueOnError)
 	grace := flags.Duration("grace", 5*time.Second, "managed process shutdown grace period")
+	dataDir := flags.String("data-dir", "", "absolute local management storage directory")
 	path := flags.String("config", "connector.json", "configuration path")
 	server := flags.String("server", "", "platform origin")
 	scope := flags.String("scope", "user", "user for desktop apps; system for background services")
@@ -58,8 +57,10 @@ func execute() error {
 		}
 		return config.Save(*path, c)
 	}
-	program := &install.Program{Run: func(ctx context.Context) error { return run(ctx, *path, client) }}
-	if action != "run" {
+	program := &install.Program{Run: func(ctx context.Context) error {
+		return manage(ctx, managementOptions{ConfigPath: *path, DataDir: *dataDir, Client: client, Offline: action == "manage"})
+	}}
+	if action != "run" && action != "connect" && action != "manage" {
 		return install.Control(program, *path, *scope, action)
 	}
 	if !service.Interactive() {
@@ -72,19 +73,4 @@ func execute() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	return program.Run(ctx)
-}
-func run(ctx context.Context, path string, client *http.Client) error {
-	cfg, err := config.Load(path)
-	if err != nil {
-		return err
-	}
-	manager := mcpclient.New(ctx, os.Stderr, http.DefaultTransport)
-	defer func() {
-		if err := manager.CloseAll(); err != nil {
-			log.Printf("MCP shutdown: %v", err)
-		}
-	}()
-	handler := &agent.Dispatch{MCP: manager, Skills: &files.SkillInstaller{Roots: cfg.SkillRoots}, Artifacts: &files.ArtifactTransfer{Roots: cfg.ArtifactRoots, Client: client, Server: cfg.Server}}
-	runner := agent.Runner{Config: cfg, Handler: handler, Client: client, Logger: log.New(os.Stderr, "connector ", log.LstdFlags)}
-	return runner.Run(ctx)
 }

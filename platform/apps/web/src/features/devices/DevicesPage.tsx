@@ -1,7 +1,8 @@
 import { Disclosure } from '../../components/shared/Disclosure.js';
 import { Card } from '../../components/ui/card.js';
 import { Input } from '../../components/ui/input.js';
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
+const DeviceLocalManager = lazy(() => import('../local/DeviceLocalManager.js'));
 import { useQuery } from '@tanstack/react-query';
 import { Monitor } from 'lucide-react';
 import { api, json, type Device } from '../../lib/api.js';
@@ -23,6 +24,7 @@ export default function DevicesPage() {
     refetchInterval: 15_000,
   });
   const [pairing, setPairing] = useState<{ code: string; expiresAt: string }>();
+  const [localDevice, setLocalDevice] = useState<string>();
   return (
     <>
       <div className="page-heading">
@@ -96,6 +98,16 @@ export default function DevicesPage() {
                 <Status value={device.revoked ? 'revoked' : device.online ? 'online' : 'offline'} />
               </div>
               <div className="row-actions">
+                {!device.revoked ? (
+                  <button
+                    className="button"
+                    onClick={() =>
+                      setLocalDevice(localDevice === device.id ? undefined : device.id)
+                    }
+                  >
+                    管理本机 MCP / Skills
+                  </button>
+                ) : null}
                 <small>最近通信：{date(device.lastSeen)}</small>
                 {!device.revoked ? (
                   <Action danger action={() => api(`/devices/${device.id}`, { method: 'DELETE' })}>
@@ -107,6 +119,11 @@ export default function DevicesPage() {
                 <Disclosure title="MCP 服务诊断">
                   <Code value={device.services} />
                 </Disclosure>
+              ) : null}
+              {localDevice === device.id ? (
+                <Suspense fallback={<p>正在加载资源管理…</p>}>
+                  <DeviceLocalManager deviceId={device.id} />
+                </Suspense>
               ) : null}
             </div>
           ))

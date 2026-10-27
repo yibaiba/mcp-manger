@@ -1,6 +1,7 @@
 import { and, eq, gt } from 'drizzle-orm';
 import { devices, pairings, type Database } from '@platform/db';
 import { pairingLifetimeMs, type DeviceResponse } from '@platform/contracts';
+import { localResource } from '@platform/contracts';
 import { digest, secretToken } from '../../shared/crypto.js';
 import { AppError, requireValue } from '../../shared/errors.js';
 import type { DeviceBroker } from './deviceBroker.js';
@@ -52,6 +53,18 @@ export class DeviceService {
       .where(and(eq(devices.id, id), eq(devices.ownerId, ownerId), eq(devices.revoked, false)));
     return requireValue(row, '设备不存在或已撤销');
   }
+  async assertLocalReference(ownerId: string, input: { deviceId: string; resourceId: string }) {
+    await this.owned(ownerId, input.deviceId);
+    this.broker.requireCapability(input.deviceId, 'local-management');
+    const resource = localResource.parse(
+      await this.broker.request(input.deviceId, {
+        method: 'local.request',
+        params: { action: 'resource', id: input.resourceId },
+      }),
+    );
+    if (!resource.selected || resource.deleted || resource.kind !== 'mcp')
+      throw new AppError('LOCAL_RESOURCE_UNAVAILABLE', '资源未在所选设备纳入同步或已删除', 409);
+  }
   async revoke(ownerId: string, id: string) {
     await this.owned(ownerId, id);
     await this.db.update(devices).set({ revoked: true }).where(eq(devices.id, id));
@@ -59,7 +72,12 @@ export class DeviceService {
   }
 }
 export async function reportDevice(db: Database, id: string, message: DeviceResponse) {
-  if (message.type === 'result' || message.type === 'notification') return;
+  if (
+    message.type === 'result' ||
+    message.type === 'notification' ||
+    message.type === 'local.changed'
+  )
+    return;
   const fields =
     message.type === 'hello'
       ? { os: message.os, version: message.version, hostname: message.hostname }

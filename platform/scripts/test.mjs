@@ -1,4 +1,13 @@
 import { spawn, execFileSync } from 'node:child_process';
+execFileSync(
+  process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+  ['--filter', 'web', 'build:local'],
+  {
+    cwd: new URL('../', import.meta.url),
+    stdio: 'inherit',
+    timeout: 60_000,
+  },
+);
 // Build the actual connector before starting the hard-timed backend test process.
 execFileSync('go', ['build', '-o', 'bin/connector', './cmd/connector'], {
   cwd: new URL('../connector/', import.meta.url),

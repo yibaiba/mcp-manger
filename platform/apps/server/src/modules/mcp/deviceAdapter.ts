@@ -18,7 +18,10 @@ export function createDeviceAdapter(
     : undefined;
   const params = {
     connectionId: context.id,
-    config: context.config,
+    config: {
+      ...context.config,
+      localIdentity: context.identity === 'default' ? 'default' : context.bindingId,
+    },
     sessionId,
     bindingId: context.bindingId,
     capabilities: context.capabilities,
@@ -26,7 +29,7 @@ export function createDeviceAdapter(
   };
   const authorized = async () => ({
     ...params,
-    config: { ...context.config, headers: { ...context.config.headers, ...(await authHeaders()) } },
+    config: { ...params.config, headers: { ...context.config.headers, ...(await authHeaders()) } },
   });
   const interactions = new Map<string, () => void>();
   return {

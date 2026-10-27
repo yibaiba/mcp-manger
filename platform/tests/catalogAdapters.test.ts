@@ -28,6 +28,7 @@ beforeAll(async () => {
       server: h.baseURL,
       deviceId,
       token: device.token,
+      localDataDir: join(root, 'local-state'),
       skillRoots: { claude: join(root, 'skills') },
       artifactRoots: { workspace: root },
     }),
@@ -35,6 +36,12 @@ beforeAll(async () => {
   );
   child = spawn(resolve('connector/bin/connector'), ['run', '--config', config], {
     stdio: ['ignore', 'ignore', 'pipe'],
+    env: {
+      ...process.env,
+      HOME: h.directory,
+      CODEX_HOME: join(root, 'codex'),
+      PI_CODING_AGENT_DIR: join(root, 'pi'),
+    },
   });
   child.stderr?.on('data', (data: Buffer) => process.stderr.write(data));
   await vi.waitFor(() => expect(h.services.broker.online(deviceId)).toBe(true), { timeout: 5000 });

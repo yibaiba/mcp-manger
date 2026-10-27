@@ -31,6 +31,7 @@ pnpm dev
 
 - 登录和用户隔离；MCP 工具、Prompts、Resources 和资源模板的发现、调用/读取、独立授权与目录变更通知；停止、错误诊断和稳定标识。
 - Go WSS 配对、撤销、自动重连、关联请求、取消、断线结果未知；本地 stdio、HTTP/SSE 和托管进程。
+- [本机 MCP / Skills 管理](docs/local-management.md)：Cursor、Claude Code、Codex、Pi 来源扫描，独立离线管理页，所选资源双向同步、差异冲突、确认删除与本机恢复副本。
 - Agent 配置按工具、Prompt/Resource/模板、Skill 版本、产物 ID 授权；同一 `/mcp/:profileId` 入口汇聚所有适配器；接入密钥和 OAuth PKCE。
 - MCP 2026-07-28 与旧会话协议双栈；完整元数据、进度和资源订阅；严格 Schema 校验，不自动重放工具调用。
 - 上游 OAuth 凭证加密、刷新、重启恢复和本地撤销；独立的可选 Pi 桥接和模型任务入口。
@@ -59,7 +60,7 @@ cd connector
 go test -timeout 60s ./...
 go vet ./...
 cd ..
-pnpm connector:build        # macOS/Linux/Windows，amd64/arm64
+pnpm connector:build        # macOS/Linux/Windows，amd64/arm64；包含本机管理页
 pnpm test:pi                # 真实 Pi SDK 桥接；不调用模型，硬超时 60 秒
 ```
 

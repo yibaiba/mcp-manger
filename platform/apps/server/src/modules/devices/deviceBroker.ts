@@ -7,7 +7,7 @@ import {
   type DeviceResponse,
 } from '@platform/contracts';
 import type { WebSocket } from 'ws';
-import { AppError } from '../../shared/errors.js';
+import { AppError, errorMessage } from '../../shared/errors.js';
 import { z } from 'zod';
 import type { McpNotification, Progress } from '@platform/mcp';
 const progressSchema = z.object({
@@ -23,6 +23,11 @@ type Pending = {
   onprogress?: (progress: Progress) => void;
 };
 export class DeviceBroker {
+  private readonly localListeners = new Set<(id: string) => void>();
+  watchLocal(listener: (id: string) => void) {
+    this.localListeners.add(listener);
+    return () => this.localListeners.delete(listener);
+  }
   private readonly capabilities = new Map<string, readonly string[]>();
   hasCapability(id: string, capability: string) {
     return this.capabilities.get(id)?.includes(capability) ?? false;
@@ -51,14 +56,24 @@ export class DeviceBroker {
       alive = true;
     });
     socket.on('message', (data) => {
-      void this.receive(id, socket, data.toString()).catch(() =>
-        socket.close(1008, 'Invalid device message'),
-      );
+      void this.receive(id, socket, data.toString()).catch((error: unknown) => {
+        const reason =
+          error instanceof SyntaxError
+            ? 'Invalid JSON'
+            : error instanceof z.ZodError
+              ? error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')
+              : errorMessage(error);
+        console.error('Device message rejected', id, reason);
+        socket.close(1008, 'Invalid device message');
+      });
     });
     socket.on('error', () => socket.terminate());
     socket.on('close', () => {
       clearInterval(heartbeat);
-      if (this.sockets.get(id) === socket) this.sockets.delete(id);
+      if (this.sockets.get(id) === socket) {
+        this.sockets.delete(id);
+        this.capabilities.delete(id);
+      }
       for (const request of this.pending.values()) {
         if (request.socket === socket)
           request.finish(
@@ -75,7 +90,15 @@ export class DeviceBroker {
   private async receive(id: string, socket: WebSocket, raw: string) {
     if (this.sockets.get(id) !== socket) return;
     const message = deviceResponse.parse(JSON.parse(raw));
-    if (message.type === 'hello') this.capabilities.set(id, message.capabilities ?? []);
+    if (message.type === 'hello') {
+      this.capabilities.set(id, message.capabilities ?? []);
+      if (this.hasCapability(id, 'local-sync'))
+        for (const listener of this.localListeners) listener(id);
+    }
+    if (message.type === 'local.changed') {
+      for (const listener of this.localListeners) listener(id);
+      return;
+    }
     if (message.type === 'notification') {
       if (message.method === 'notifications/progress') {
         const pending = message.requestId ? this.pending.get(message.requestId) : undefined;

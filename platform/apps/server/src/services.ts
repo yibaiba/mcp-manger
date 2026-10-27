@@ -29,6 +29,7 @@ import { SkillService } from './modules/skills/skillService.js';
 import { DiskFileStore } from './modules/artifacts/fileStore.js';
 import { ArtifactService } from './modules/artifacts/artifactService.js';
 import { PiService } from './modules/pi-runtime/piService.js';
+import { LocalService } from './modules/local/localService.js';
 export function createServices(db: Database, config: Config) {
   const vault = new Vault(config.ENCRYPTION_KEY);
   const events = new RuntimeEvents();
@@ -131,6 +132,14 @@ export function createServices(db: Database, config: Config) {
     requests,
   });
   const skills = new SkillService({ db, broker, devices, profiles });
+  const local = new LocalService({
+    db,
+    broker,
+    devices,
+    connections,
+    skills,
+    changed: () => access.changed(),
+  });
   const artifacts = new ArtifactService({
     db,
     access,
@@ -158,6 +167,7 @@ export function createServices(db: Database, config: Config) {
     start: (ownerId, input, id) => pi.start(ownerId, input, id),
   });
   return {
+    local,
     requests,
     handoffs,
     broker,

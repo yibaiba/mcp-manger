@@ -54,6 +54,7 @@ async function shutdown() {
   server.close();
   appsServer.close();
   services.broker.close();
+  await services.local.close();
   sockets.close();
   await services.pi.close();
   await services.gateway.close();
