@@ -26,7 +26,7 @@
 | Chrome 本机与平台入口                      | 实际离线 MCP / Skill 编辑、持久选择后配对、平台回写、冲突选择、历史版本保存和恢复副本通过；桌面和 375px 无横向溢出，键盘可操作；无页面异常 |
 | 离线页面依赖                               | 浏览器验收只允许 loopback 请求，所有资源由二进制提供，不需要 CDN                                                                           |
 | 已安装 Codex / Claude Code                 | 隔离 HOME 下，真实客户端读取连接器修改后的 TOML / JSON 配置通过；不调用模型，未声称完成交互式 Skill 使用                                   |
-| Docker / Compose                           | 最新镜像后的 Compose 复验未完成：两次 Docker 构建触发硬超时，详情见下方                                                                    |
+| Docker / Compose                           | 通过：最新镜像、新库与重复迁移、本地管理 API、静态页和鉴权、Sandbox 契约、真实无模型 Pi 桥接                                               |
 
 11 项管理集成覆盖设备归属、无业务派发扫描、真实目录发现、凭证引用与不持久化明文、幂等提交、保留注释回写、双方冲突、凭证修改失效、Skill 固定授权、离线平台修改重连、不回环、中断修改恢复、解除同步和确认删除。Go 测试另覆盖四客户端语法读写、未知字段、变量保留、同名与共享来源、损坏配置、命令和动态表达式不执行、独立身份不回落、备份恢复、写锁、Origin / Host / CSRF / 一次性令牌，以及 stderr 分块脱敏。
 
@@ -36,7 +36,11 @@
 
 浏览器验收发现编辑器保留草稿时也保留了旧运行状态，启动成功后停止按钮仍不可用；已让操作按钮使用最新资源状态，同时保留编辑草稿。真实 MCP 会话启动、停止与外部配置变化后的失效均已复验。
 
-Docker 第一轮已完成依赖、类型检查、应用构建与系统包安装，但在服务器镜像导出阶段触发 900 秒硬超时；第二轮因源码快照变化重新安装依赖，在安装 595/596 个包后等待剩余下载，触发 600 秒硬超时。因此未执行最新镜像后的 Compose 回归，不能用较早镜像的通过结果替代。日志保留在 `.data/local-management-docker-final.log` 和 `.data/local-management-docker-retry.log`。`scripts/verify-compose.mjs` 已补充全新迁移后配对临时设备并查询离线本地管理 API 的断言，静态检查通过，但新增容器断言尚未运行。需要在镜像成功构建后执行文末 Compose 命令，确认迁移、接口与 Pi 桥接。
+Docker 最初两轮分别在镜像导出和依赖下载阶段触发 900 / 600 秒硬超时，失败日志保留在 `.data/local-management-docker-final.log` 和 `.data/local-management-docker-retry.log`。续验拆出锁文件 / workspace / 补丁下载层，使用独立 pnpm 缓存挂载；源码复制后离线安装，系统包层独立于应用构建。首次依赖和 Debian 包下载仍较慢，但最终类型检查、生产构建及两份镜像导出全部成功，没有改变依赖版本或忽略错误。
+
+随后修改验收文档重新构建，确认 `pnpm fetch` 与 Git / CA 安装层均显示 `CACHED`，源码复制后的离线安装成功；缓存复查日志为 `.data/local-management-docker-cache.log`。
+
+最新镜像已完成独立临时 Compose 验收：非 root 用户禁网运行 pnpm 10.12.4、新库迁移 0007 及重复迁移、临时设备配对与离线本地管理 API、Caddy 静态页、健康与登录 API、隔离 Sandbox 的单次文档和 CSP HTTP 契约，以及真实 Pi SDK / pi-mcp-adapter 发现和调用。Pi 测试保持 60 秒硬超时且不调用模型。新增本地管理断言已实际运行，所有临时容器、网络和卷均已清理；保留原开发数据库容器。构建与 Compose 日志分别为 `.data/local-management-docker-resume.log` 和 `.data/local-management-compose-resume.log`。
 
 ## 未验收范围
 

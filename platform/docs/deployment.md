@@ -22,6 +22,8 @@ Apps 使用单独源站，Caddy 将 APPS_DOMAIN 代理至 server:4302，仅暴�
 
 镜像把 Corepack 缓存放在 `/usr/local/share/corepack`，运行用户 node 可以直接使用构建时安装的 pnpm，无需启动时再次联网下载。修改镜像后，可在本机运行 `node scripts/check.mjs 600 node scripts/verify-compose.mjs`：需要先构建出默认的 mcp-platform-server/web 镜像，并空出 54330/54332。验收使用独立项目名、随机临时凭证、新建卷和仅回环地址的 HTTP 端口，检查非 root 用户禁网执行 pnpm、新库及重复迁移、Caddy 静态页、健康/登录 API、隔离源 HTTP 契约与真实无模型 Pi 桥接；结束时只清理本次项目和卷。该检查需要支持 `!override` 的 Compose，不验证公网证书签发。
 
+构建使用 BuildKit：先按锁文件、workspace 配置与补丁执行 `pnpm fetch`，再复制源码并离线安装。下载目录使用独立缓存挂载；源码或文档变化不会使下载层失效，中断后的重试也能复用已下载的包。Git 与 CA 系统包位于独立基础层，不随应用源码重新安装。首次下载仍需网络，缺包或下载失败会直接终止构建。实现参考 [pnpm Docker 构建](https://pnpm.io/docker) 与 [Docker 缓存分层](https://docs.docker.com/build/cache/optimize/)。
+
 ## 升级与回退
 
 应用迁移前先停止服务并备份数据库、整个 DATA_DIR、SQL 与 Pi 加密密钥。0003/0004 增加授权绑定、目录快照和加密交互状态；0005/0006 增加工作空间修订、任务事件、权限申请、临时授权、身份指纹与交接。0007 增加本机来源、同步绑定和持久操作；新管理入口需要连接器 0.2.0。旧 Profile 省略新增字段时保留已有值，不迁移 MCPHub token。旧连接器继续原功能，新会话/授权/交互能力要求升级连接器。Windows stdio host 与连接器必须使用相同版本。
