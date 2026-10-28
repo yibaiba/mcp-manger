@@ -151,13 +151,17 @@ export class DeviceBroker {
         );
       };
       const timeoutMs = input.executionTimeoutMs ?? CALL_TIMEOUT_MS;
+      const deadlineAt = Date.now() + timeoutMs;
       // This deadline is the remaining platform budget, not a separate 60s cap.
       const timer = setTimeout(cancel, timeoutMs);
       const finish = (value: unknown, error?: Error) => {
         clearTimeout(timer);
         input.signal?.removeEventListener('abort', cancel);
         this.pending.delete(id);
-        if (error) reject(error);
+        // Older connectors report a generic error when their deadline wins the timer race.
+        if (error && Date.now() >= deadlineAt)
+          reject(new AppError('RESULT_UNKNOWN', '设备截止时间已到；请确认上游执行结果', 502));
+        else if (error) reject(error);
         else resolve(value);
       };
       this.pending.set(id, { deviceId, socket, finish, onprogress: input.onprogress });
@@ -168,7 +172,7 @@ export class DeviceBroker {
         id,
         method: input.method,
         params: { ...input.params, ...(input.onprogress ? { progressToken: id } : {}) },
-        deadline: new Date(Date.now() + timeoutMs).toISOString(),
+        deadline: new Date(deadlineAt).toISOString(),
       };
       socket.send(JSON.stringify(request), (error) => {
         if (error)
