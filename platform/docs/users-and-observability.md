@@ -14,6 +14,8 @@ CLI 仅修改指定账号角色，不输出密码、会话或凭证。可用 `me
 
 管理入口为 `/api/v1/admin/users`、`/api/v1/admin/users/:id` 和其 `/sessions` 子路径；个人会话位于 `/api/v1/me/sessions`。密码更新复用 Better Auth 的 `/api/v1/auth/change-password`。
 
+`ALLOW_REGISTRATION=false` 同时关闭邮箱和 SSO 新用户注册，并在 Better Auth 用户创建入口再次校验；`requestSignUp` 不能绕过。已绑定账号的登录、显式身份关联及管理员创建账号不受关闭注册影响。
+
 ## Google、GitHub 和 OIDC
 
 在部署环境配置 `AUTH_PROVIDERS` JSON。不存在的提供方不会显示登录入口；空字符串表示未配置，便于 Compose 传入可选环境变量；部分填写或无效 JSON 会阻止启动并报告配置错误。密钥只放在环境或秘密管理系统，不提交到文件库。

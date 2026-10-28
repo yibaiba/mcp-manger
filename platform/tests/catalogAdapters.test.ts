@@ -12,9 +12,10 @@ let fixture: Awaited<ReturnType<typeof fixtureCatalog>>;
 let account: Awaited<ReturnType<typeof h.signup>>;
 let child: ChildProcess;
 let deviceId: string;
+let progressDelivered: Promise<void> | undefined;
 beforeAll(async () => {
   h = await harness();
-  fixture = await fixtureCatalog();
+  fixture = await fixtureCatalog({ afterProgress: async () => progressDelivered });
   account = await h.signup();
   const pair = await h.services.devices.createPairing(account.ownerId, 'catalog connector');
   const device = await h.services.devices.pair(pair.code);
@@ -102,6 +103,7 @@ test.each(['device', 'pi'] as const)(
         requestInit: { headers: { Authorization: `Bearer ${key.token}` } },
       }),
     );
+    const progressGate = Promise.withResolvers<void>();
     try {
       const prompt = entries.find((entry) => entry.name === 'review')!;
       expect(
@@ -115,11 +117,19 @@ test.each(['device', 'pi'] as const)(
           .contents[0]?.uri,
       ).toContain('note:///device-note');
       const progress: number[] = [];
+      // Keep execution active until the real progress notification arrives.
+      // SDK notification dispatch and an immediately following result can race.
+      progressDelivered = progressGate.promise;
       const before = fixture.calls();
       expect(
         await client.callTool(
           { name: tool!.id, arguments: { message: adapter } },
-          { onprogress: (event) => progress.push(event.progress) },
+          {
+            onprogress: (event) => {
+              progress.push(event.progress);
+              progressGate.resolve();
+            },
+          },
         ),
       ).toMatchObject({
         structuredContent: { message: adapter },
@@ -144,6 +154,8 @@ test.each(['device', 'pi'] as const)(
       );
       await listen.close();
     } finally {
+      progressGate.resolve();
+      progressDelivered = undefined;
       await client.close();
     }
   },

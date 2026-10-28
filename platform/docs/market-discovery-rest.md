@@ -40,6 +40,8 @@ POST /mcp/:profileId/rest/calls/:callId/cancel
 
 OpenAPI 3.1 的路径使用稳定内部工具 ID，`operationId` 使用生效展示名。工具 POST 的 JSON body 就是工具参数，不需再包一层 `arguments`。正常完成返回实际 MCP 结果，包括 `isError`、`content`、`structuredContent`；响应 `X-Call-Id` 标识原调用。
 
+每个工具输入 Schema 使用独立 `components.schemas` 项，局部 JSON Pointer 引用同步调整，避免不同工具的 `$defs` 相互冲突。转换仅遍历 Schema 字段，不改写默认值和示例中的业务数据；显式 `$id` 定义的独立引用作用域保留。作用域遵循 [OpenAPI 3.1 Schema Object](https://spec.openapis.org/oas/v3.1.0.html#schema-object)。
+
 需要回答时返回 202、`callId`、`interactionId`、`inputRequests` 及 `links`。回答格式：
 
 ```json

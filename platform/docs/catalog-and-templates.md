@@ -57,6 +57,10 @@
 
 导出不包含 Agent key、OAuth token、授权会话或设备秘密。静态凭证改为 `secretRef`，目录和外部依赖改为逻辑引用，目标环境需配置映射。连接或 Profile 重名会明确要求先命名，不生成带随机 ID 的模板。
 
+同一工具可以同时出现在授权和可申请列表，也可以重复引用；隐藏参数按实际工具 ID 合并取并集，省略的别名和描述不清除其他引用已声明的值。两个引用明确提供不同别名或描述时返回 `MANIFEST_CATALOG_CONFLICT`，不会按遍历顺序选择其中一个。
+
+账号级配置导出要求所有模板和 Profile 均已就绪；存在 `pending/error` 时返回 `DEPLOYMENT_PENDING`，避免导出旧权限或遗漏尚未创建的连接。需要取得尚未就绪的部署意图时，使用 `GET /api/v1/config/manifests/:name` 或 `config:manifest status` 返回的完整 `declaration`，并另行配置目标环境的外部映射。
+
 ## 应用、冲突和清理
 
 重复应用未变化声明保留对象 ID、版本、OAuth 状态和运行配置；声明替换按完整配置生效，省略的可选字段不会继承旧值。保存请求可携带上次返回的 `revision` 检测并发编辑。

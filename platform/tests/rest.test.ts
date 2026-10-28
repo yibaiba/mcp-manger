@@ -31,7 +31,9 @@ beforeAll(async () => {
               interaction: { type: 'boolean' },
               delay: { type: 'number' },
               hidden: { type: 'string' },
+              payload: { $ref: '#/$defs/Payload' },
             },
+            $defs: { Payload: { type: 'object', properties: { label: { type: 'string' } } } },
           },
         },
       ],
@@ -128,9 +130,10 @@ test('OpenAPI 3.1 describes projected schemas; actual OpenAPI adapter calls the 
   const path = `/mcp/${s.profile.id}/rest/tools/${s.tool.id}`;
   expect(document).toMatchObject({ openapi: '3.1.0', security: [{ bearerAuth: [] }] });
   expect(document.paths[path].post.operationId).toBe('rest_echo');
-  expect(
-    document.paths[path].post.requestBody.content['application/json'].schema.properties,
-  ).not.toHaveProperty('hidden');
+  expect(document.paths[path].post.requestBody.content['application/json'].schema).toEqual({
+    $ref: `#/components/schemas/Input_${s.tool.id}`,
+  });
+  expect(document.components.schemas[`Input_${s.tool.id}`].properties).not.toHaveProperty('hidden');
   const api = await h.services.connections.create(s.ownerId, {
     name: 'Actual OpenAPI client',
     source: 'openapi',

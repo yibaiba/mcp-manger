@@ -1,11 +1,18 @@
 import type { ProfileService } from '../agent-profiles/profileService.js';
 import { toolDefinition } from '../discovery/discoveryService.js';
+import { relocateSchema } from './schemaReferences.js';
 export async function exportOpenApi(
   profiles: ProfileService,
   input: { ownerId: string; profileId: string; publicUrl: string },
 ) {
   const profile = await profiles.owned(input.ownerId, input.profileId);
   const rows = await profiles.catalog(input.ownerId, input.profileId);
+  const inputs = Object.fromEntries(
+    rows.map((row) => [
+      `Input_${row.id}`,
+      relocateSchema(toolDefinition(row).inputSchema, `Input_${row.id}`),
+    ]),
+  );
   const paths = Object.fromEntries(
     rows.map((row) => {
       const tool = toolDefinition(row);
@@ -26,7 +33,9 @@ export async function exportOpenApi(
             ],
             requestBody: {
               required: true,
-              content: { 'application/json': { schema: tool.inputSchema } },
+              content: {
+                'application/json': { schema: { $ref: `#/components/schemas/Input_${row.id}` } },
+              },
             },
             responses: {
               '200': {
@@ -139,6 +148,7 @@ export async function exportOpenApi(
     components: {
       securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer' } },
       schemas: {
+        ...inputs,
         CallStatus: {
           type: 'object',
           required: ['callId', 'status', 'links'],
