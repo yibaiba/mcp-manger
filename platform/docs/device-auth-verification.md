@@ -45,7 +45,7 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node scripts/check.mjs 
 node scripts/check.mjs 600 node scripts/verify-compose.mjs
 ```
 
-Compose 验收需预先构建最新 mcp-platform-server / mcp-platform-web 镜像及本机 connector/bin/connector，空出 54330 / 54332。创建独立项目、随机凭证和卷，结束时清理本次资源。HTTPS 使用本次 Caddy 内部 CA，Node 显式传入 CA，macOS Go 通过 `--ca-cert` 加入进程信任池；没有跳过 TLS 或修改系统钥匙串。先前证书尚未生成时复制文件的时序问题已改为等待文件就绪；macOS Go 不读取 SSL_CERT_FILE 的差异通过显式 CA 参数处理。
+当前 Compose 验收需预先构建最新 `mcp-platform:latest` 单应用镜像及本机 `connector/bin/connector`，空出回环端口 54330。脚本创建独立项目、随机凭证和卷，结束时清理本次资源；当前同端口部署步骤以 [部署说明](deployment.md) 为准。历史 HTTPS 验收使用临时 Caddy 内部 CA，Node 显式传入 CA，macOS Go 通过 `--ca-cert` 加入进程信任池，没有跳过 TLS 或修改系统钥匙串；该历史结果不代表当前公网 HTTPS 已完成验收。
 
 ## 运维与验证边界
 

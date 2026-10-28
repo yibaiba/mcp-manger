@@ -47,6 +47,7 @@ export function createDeviceAdapter(
           method: 'catalog',
           params: await authorized(),
           signal,
+          executionTimeoutMs: context.config.connectTimeoutMs,
         }),
       ),
     request: async (operation, options) =>
@@ -73,6 +74,7 @@ export function createDeviceAdapter(
           inputResponses: input.inputResponses,
         },
         signal: input.signal,
+        executionTimeoutMs: input.executionTimeoutMs,
         onprogress: input.onprogress,
       });
       if (!isInputRequiredResult(result)) return CallToolResultSchema.parse(result);
@@ -103,6 +105,7 @@ export function createDeviceAdapter(
         method: 'check',
         params: await authorized(),
         signal,
+        executionTimeoutMs: context.config.health.timeoutMs,
       });
     },
     async close() {
