@@ -8,144 +8,153 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root';
-import { Route as UsersRouteImport } from './routes/users';
-import { Route as ToolsRouteImport } from './routes/tools';
-import { Route as TasksRouteImport } from './routes/tasks';
-import { Route as SystemLogsRouteImport } from './routes/system-logs';
-import { Route as SkillsRouteImport } from './routes/skills';
-import { Route as ProfilesRouteImport } from './routes/profiles';
-import { Route as DevicesRouteImport } from './routes/devices';
-import { Route as ConnectionsRouteImport } from './routes/connections';
-import { Route as AuthorizeRouteImport } from './routes/authorize';
-import { Route as AuthorizationsRouteImport } from './routes/authorizations';
-import { Route as ArtifactsRouteImport } from './routes/artifacts';
-import { Route as ActivityRouteImport } from './routes/activity';
-import { Route as AccountRouteImport } from './routes/account';
-import { Route as IndexRouteImport } from './routes/index';
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as UsersRouteImport } from './routes/users'
+import { Route as ToolsRouteImport } from './routes/tools'
+import { Route as TasksRouteImport } from './routes/tasks'
+import { Route as SystemLogsRouteImport } from './routes/system-logs'
+import { Route as SkillsRouteImport } from './routes/skills'
+import { Route as ProfilesRouteImport } from './routes/profiles'
+import { Route as DevicesRouteImport } from './routes/devices'
+import { Route as ConnectionsRouteImport } from './routes/connections'
+import { Route as ConfigurationRouteImport } from './routes/configuration'
+import { Route as AuthorizeRouteImport } from './routes/authorize'
+import { Route as AuthorizationsRouteImport } from './routes/authorizations'
+import { Route as ArtifactsRouteImport } from './routes/artifacts'
+import { Route as ActivityRouteImport } from './routes/activity'
+import { Route as AccountRouteImport } from './routes/account'
+import { Route as IndexRouteImport } from './routes/index'
 
 const UsersRoute = UsersRouteImport.update({
   id: '/users',
   path: '/users',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ToolsRoute = ToolsRouteImport.update({
   id: '/tools',
   path: '/tools',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const SystemLogsRoute = SystemLogsRouteImport.update({
   id: '/system-logs',
   path: '/system-logs',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const SkillsRoute = SkillsRouteImport.update({
   id: '/skills',
   path: '/skills',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ProfilesRoute = ProfilesRouteImport.update({
   id: '/profiles',
   path: '/profiles',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const DevicesRoute = DevicesRouteImport.update({
   id: '/devices',
   path: '/devices',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ConnectionsRoute = ConnectionsRouteImport.update({
   id: '/connections',
   path: '/connections',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
+const ConfigurationRoute = ConfigurationRouteImport.update({
+  id: '/configuration',
+  path: '/configuration',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthorizeRoute = AuthorizeRouteImport.update({
   id: '/authorize',
   path: '/authorize',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const AuthorizationsRoute = AuthorizationsRouteImport.update({
   id: '/authorizations',
   path: '/authorizations',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ArtifactsRoute = ArtifactsRouteImport.update({
   id: '/artifacts',
   path: '/artifacts',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const ActivityRoute = ActivityRouteImport.update({
   id: '/activity',
   path: '/activity',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const AccountRoute = AccountRouteImport.update({
   id: '/account',
   path: '/account',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute;
-  '/account': typeof AccountRoute;
-  '/activity': typeof ActivityRoute;
-  '/artifacts': typeof ArtifactsRoute;
-  '/authorizations': typeof AuthorizationsRoute;
-  '/authorize': typeof AuthorizeRoute;
-  '/connections': typeof ConnectionsRoute;
-  '/devices': typeof DevicesRoute;
-  '/profiles': typeof ProfilesRoute;
-  '/skills': typeof SkillsRoute;
-  '/system-logs': typeof SystemLogsRoute;
-  '/tasks': typeof TasksRoute;
-  '/tools': typeof ToolsRoute;
-  '/users': typeof UsersRoute;
+  '/': typeof IndexRoute
+  '/account': typeof AccountRoute
+  '/activity': typeof ActivityRoute
+  '/artifacts': typeof ArtifactsRoute
+  '/authorizations': typeof AuthorizationsRoute
+  '/authorize': typeof AuthorizeRoute
+  '/configuration': typeof ConfigurationRoute
+  '/connections': typeof ConnectionsRoute
+  '/devices': typeof DevicesRoute
+  '/profiles': typeof ProfilesRoute
+  '/skills': typeof SkillsRoute
+  '/system-logs': typeof SystemLogsRoute
+  '/tasks': typeof TasksRoute
+  '/tools': typeof ToolsRoute
+  '/users': typeof UsersRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute;
-  '/account': typeof AccountRoute;
-  '/activity': typeof ActivityRoute;
-  '/artifacts': typeof ArtifactsRoute;
-  '/authorizations': typeof AuthorizationsRoute;
-  '/authorize': typeof AuthorizeRoute;
-  '/connections': typeof ConnectionsRoute;
-  '/devices': typeof DevicesRoute;
-  '/profiles': typeof ProfilesRoute;
-  '/skills': typeof SkillsRoute;
-  '/system-logs': typeof SystemLogsRoute;
-  '/tasks': typeof TasksRoute;
-  '/tools': typeof ToolsRoute;
-  '/users': typeof UsersRoute;
+  '/': typeof IndexRoute
+  '/account': typeof AccountRoute
+  '/activity': typeof ActivityRoute
+  '/artifacts': typeof ArtifactsRoute
+  '/authorizations': typeof AuthorizationsRoute
+  '/authorize': typeof AuthorizeRoute
+  '/configuration': typeof ConfigurationRoute
+  '/connections': typeof ConnectionsRoute
+  '/devices': typeof DevicesRoute
+  '/profiles': typeof ProfilesRoute
+  '/skills': typeof SkillsRoute
+  '/system-logs': typeof SystemLogsRoute
+  '/tasks': typeof TasksRoute
+  '/tools': typeof ToolsRoute
+  '/users': typeof UsersRoute
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport;
-  '/': typeof IndexRoute;
-  '/account': typeof AccountRoute;
-  '/activity': typeof ActivityRoute;
-  '/artifacts': typeof ArtifactsRoute;
-  '/authorizations': typeof AuthorizationsRoute;
-  '/authorize': typeof AuthorizeRoute;
-  '/connections': typeof ConnectionsRoute;
-  '/devices': typeof DevicesRoute;
-  '/profiles': typeof ProfilesRoute;
-  '/skills': typeof SkillsRoute;
-  '/system-logs': typeof SystemLogsRoute;
-  '/tasks': typeof TasksRoute;
-  '/tools': typeof ToolsRoute;
-  '/users': typeof UsersRoute;
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/account': typeof AccountRoute
+  '/activity': typeof ActivityRoute
+  '/artifacts': typeof ArtifactsRoute
+  '/authorizations': typeof AuthorizationsRoute
+  '/authorize': typeof AuthorizeRoute
+  '/configuration': typeof ConfigurationRoute
+  '/connections': typeof ConnectionsRoute
+  '/devices': typeof DevicesRoute
+  '/profiles': typeof ProfilesRoute
+  '/skills': typeof SkillsRoute
+  '/system-logs': typeof SystemLogsRoute
+  '/tasks': typeof TasksRoute
+  '/tools': typeof ToolsRoute
+  '/users': typeof UsersRoute
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath;
+  fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/account'
@@ -153,6 +162,7 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/authorizations'
     | '/authorize'
+    | '/configuration'
     | '/connections'
     | '/devices'
     | '/profiles'
@@ -160,8 +170,8 @@ export interface FileRouteTypes {
     | '/system-logs'
     | '/tasks'
     | '/tools'
-    | '/users';
-  fileRoutesByTo: FileRoutesByTo;
+    | '/users'
+  fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/account'
@@ -169,6 +179,7 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/authorizations'
     | '/authorize'
+    | '/configuration'
     | '/connections'
     | '/devices'
     | '/profiles'
@@ -176,7 +187,7 @@ export interface FileRouteTypes {
     | '/system-logs'
     | '/tasks'
     | '/tools'
-    | '/users';
+    | '/users'
   id:
     | '__root__'
     | '/'
@@ -185,6 +196,7 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/authorizations'
     | '/authorize'
+    | '/configuration'
     | '/connections'
     | '/devices'
     | '/profiles'
@@ -192,126 +204,134 @@ export interface FileRouteTypes {
     | '/system-logs'
     | '/tasks'
     | '/tools'
-    | '/users';
-  fileRoutesById: FileRoutesById;
+    | '/users'
+  fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute;
-  AccountRoute: typeof AccountRoute;
-  ActivityRoute: typeof ActivityRoute;
-  ArtifactsRoute: typeof ArtifactsRoute;
-  AuthorizationsRoute: typeof AuthorizationsRoute;
-  AuthorizeRoute: typeof AuthorizeRoute;
-  ConnectionsRoute: typeof ConnectionsRoute;
-  DevicesRoute: typeof DevicesRoute;
-  ProfilesRoute: typeof ProfilesRoute;
-  SkillsRoute: typeof SkillsRoute;
-  SystemLogsRoute: typeof SystemLogsRoute;
-  TasksRoute: typeof TasksRoute;
-  ToolsRoute: typeof ToolsRoute;
-  UsersRoute: typeof UsersRoute;
+  IndexRoute: typeof IndexRoute
+  AccountRoute: typeof AccountRoute
+  ActivityRoute: typeof ActivityRoute
+  ArtifactsRoute: typeof ArtifactsRoute
+  AuthorizationsRoute: typeof AuthorizationsRoute
+  AuthorizeRoute: typeof AuthorizeRoute
+  ConfigurationRoute: typeof ConfigurationRoute
+  ConnectionsRoute: typeof ConnectionsRoute
+  DevicesRoute: typeof DevicesRoute
+  ProfilesRoute: typeof ProfilesRoute
+  SkillsRoute: typeof SkillsRoute
+  SystemLogsRoute: typeof SystemLogsRoute
+  TasksRoute: typeof TasksRoute
+  ToolsRoute: typeof ToolsRoute
+  UsersRoute: typeof UsersRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
     '/users': {
-      id: '/users';
-      path: '/users';
-      fullPath: '/users';
-      preLoaderRoute: typeof UsersRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof UsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tools': {
-      id: '/tools';
-      path: '/tools';
-      fullPath: '/tools';
-      preLoaderRoute: typeof ToolsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/tools'
+      path: '/tools'
+      fullPath: '/tools'
+      preLoaderRoute: typeof ToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tasks': {
-      id: '/tasks';
-      path: '/tasks';
-      fullPath: '/tasks';
-      preLoaderRoute: typeof TasksRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof TasksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/system-logs': {
-      id: '/system-logs';
-      path: '/system-logs';
-      fullPath: '/system-logs';
-      preLoaderRoute: typeof SystemLogsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/system-logs'
+      path: '/system-logs'
+      fullPath: '/system-logs'
+      preLoaderRoute: typeof SystemLogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/skills': {
-      id: '/skills';
-      path: '/skills';
-      fullPath: '/skills';
-      preLoaderRoute: typeof SkillsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/skills'
+      path: '/skills'
+      fullPath: '/skills'
+      preLoaderRoute: typeof SkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/profiles': {
-      id: '/profiles';
-      path: '/profiles';
-      fullPath: '/profiles';
-      preLoaderRoute: typeof ProfilesRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/profiles'
+      path: '/profiles'
+      fullPath: '/profiles'
+      preLoaderRoute: typeof ProfilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/devices': {
-      id: '/devices';
-      path: '/devices';
-      fullPath: '/devices';
-      preLoaderRoute: typeof DevicesRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/devices'
+      path: '/devices'
+      fullPath: '/devices'
+      preLoaderRoute: typeof DevicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/connections': {
-      id: '/connections';
-      path: '/connections';
-      fullPath: '/connections';
-      preLoaderRoute: typeof ConnectionsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/connections'
+      path: '/connections'
+      fullPath: '/connections'
+      preLoaderRoute: typeof ConnectionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/configuration': {
+      id: '/configuration'
+      path: '/configuration'
+      fullPath: '/configuration'
+      preLoaderRoute: typeof ConfigurationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/authorize': {
-      id: '/authorize';
-      path: '/authorize';
-      fullPath: '/authorize';
-      preLoaderRoute: typeof AuthorizeRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/authorize'
+      path: '/authorize'
+      fullPath: '/authorize'
+      preLoaderRoute: typeof AuthorizeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/authorizations': {
-      id: '/authorizations';
-      path: '/authorizations';
-      fullPath: '/authorizations';
-      preLoaderRoute: typeof AuthorizationsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/authorizations'
+      path: '/authorizations'
+      fullPath: '/authorizations'
+      preLoaderRoute: typeof AuthorizationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/artifacts': {
-      id: '/artifacts';
-      path: '/artifacts';
-      fullPath: '/artifacts';
-      preLoaderRoute: typeof ArtifactsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/artifacts'
+      path: '/artifacts'
+      fullPath: '/artifacts'
+      preLoaderRoute: typeof ArtifactsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/activity': {
-      id: '/activity';
-      path: '/activity';
-      fullPath: '/activity';
-      preLoaderRoute: typeof ActivityRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof ActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/account': {
-      id: '/account';
-      path: '/account';
-      fullPath: '/account';
-      preLoaderRoute: typeof AccountRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
-      id: '/';
-      path: '/';
-      fullPath: '/';
-      preLoaderRoute: typeof IndexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -322,6 +342,7 @@ const rootRouteChildren: RootRouteChildren = {
   ArtifactsRoute: ArtifactsRoute,
   AuthorizationsRoute: AuthorizationsRoute,
   AuthorizeRoute: AuthorizeRoute,
+  ConfigurationRoute: ConfigurationRoute,
   ConnectionsRoute: ConnectionsRoute,
   DevicesRoute: DevicesRoute,
   ProfilesRoute: ProfilesRoute,
@@ -330,7 +351,7 @@ const rootRouteChildren: RootRouteChildren = {
   TasksRoute: TasksRoute,
   ToolsRoute: ToolsRoute,
   UsersRoute: UsersRoute,
-};
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>();
+  ._addFileTypes<FileRouteTypes>()

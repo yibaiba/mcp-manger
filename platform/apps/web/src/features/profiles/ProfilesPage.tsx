@@ -1,3 +1,4 @@
+import { CatalogEditor } from './CatalogEditor.js';
 import { WorkspacePage } from './WorkspacePage.js';
 import { Card } from '../../components/ui/card.js';
 import { CheckChoice } from '../../components/shared/CheckChoice.js';
@@ -49,6 +50,7 @@ export default function ProfilesPage() {
   const [workspace, setWorkspace] = useState<string | null>(
     new URLSearchParams(window.location.search).get('workspace'),
   );
+  const [catalogEditing, setCatalogEditing] = useState<Profile>();
   const [editing, setEditing] = useState<Profile>();
   const [key, setKey] = useState<unknown>();
   const connectionNames = new Map(
@@ -84,6 +86,16 @@ export default function ProfilesPage() {
           catalog.error
         }
       />
+      {catalogEditing ? (
+        <CatalogEditor
+          key={catalogEditing.id}
+          profile={catalogEditing}
+          tools={tools.data ?? []}
+          entries={catalog.data ?? []}
+          connections={connections.data ?? []}
+          close={() => setCatalogEditing(undefined)}
+        />
+      ) : null}
       <div className="overview-grid">
         <Card className="panel padded">
           <h2>{editing ? `编辑：${editing.name}` : '创建配置'}</h2>
@@ -188,6 +200,9 @@ export default function ProfilesPage() {
             profiles.data.map((profile) => (
               <div className="connection-row" key={profile.id}>
                 <h3>{profile.name}</h3>
+                {profile.deploymentState !== 'ready' ? (
+                  <p>配置模板尚未就绪；请到配置模板页面检查待配置条目。</p>
+                ) : null}
                 <small>
                   {profile.toolIds.length} 个工具 · {profile.skillVersionIds.length} 个 Skills
                 </small>
@@ -202,6 +217,7 @@ export default function ProfilesPage() {
                     打开工作空间
                   </Button>
                   <Button onClick={() => setEditing(profile)}>编辑权限</Button>
+                  <Button onClick={() => setCatalogEditing(profile)}>目录展示</Button>
                   <ClientExport profileId={profile.id} />
                   <Action
                     action={async () =>

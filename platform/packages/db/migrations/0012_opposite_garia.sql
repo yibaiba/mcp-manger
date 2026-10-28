@@ -1,0 +1,1 @@
+ALTER TABLE "profiles" ADD COLUMN "catalog" jsonb DEFAULT '{"toolNaming":"stable","connectionAliases":{},"tools":{},"content":{}}'::jsonb NOT NULL;

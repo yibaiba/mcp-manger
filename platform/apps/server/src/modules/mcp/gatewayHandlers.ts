@@ -72,12 +72,7 @@ export async function createGatewayServer(
   }
   setHandler('tools/list', async () => {
     await input.profiles.authenticate(principal.profileId, principal.token);
-    const definitions = (await input.profiles.catalog(principal.ownerId, principal.profileId)).map(
-      (row) => ({
-        ...parseTool(scopeToolDefinition(row.connectionId, row.definition)),
-        name: row.id,
-      }),
-    );
+    const definitions = (await input.profiles.catalog(principal.ownerId, principal.profileId)).map(row => parseTool(scopeToolDefinition(row.connectionId, row.definition)));
     return {
       tools: [
         ...(await availablePermissionTools(input.requests, access())),
@@ -113,7 +108,7 @@ export async function createGatewayServer(
           },
         ],
       };
-    const toolId = name;
+    const toolId = await input.profiles.resolveName(principal.ownerId, { profileId: principal.profileId, name });
     const state = context.mcpReq.requestState();
     if (typeof state === 'string')
       return input.interactions.respond({

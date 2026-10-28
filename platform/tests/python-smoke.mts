@@ -15,6 +15,7 @@ const context = {
   ownerId: 'python-acceptance',
   config: connectionInput.parse({
     name: 'Python SDK',
+    connectTimeoutMs: Number(process.env.PYTHON_VERIFY_TIMEOUT_SECONDS ?? 60) * 1000,
     adapter: 'direct',
     transport: 'stdio',
     mode: 'managed',
