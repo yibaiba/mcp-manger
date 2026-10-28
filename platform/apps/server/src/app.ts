@@ -1,3 +1,4 @@
+import { configurationRoutes } from './modules/configuration/routes.js';
 import { workspaceRoutes } from './modules/workspace/routes.js';
 import { withExecution } from './modules/mcp/executionContext.js';
 import { Hono } from 'hono';
@@ -187,6 +188,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     '/api/v1/connections',
     authorizationRoutes({
       connections: s.connections,
+      authorized: (ownerId, id) => s.manifests.dependencyReady(ownerId, id),
       oauth: s.upstreamOAuth,
       pi: s.pi,
       changed: () => s.access.changed(),
@@ -197,6 +199,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     authorizationRoutes(
       {
         connections: s.connections,
+        authorized: (ownerId, id) => s.manifests.dependencyReady(ownerId, id),
         oauth: s.upstreamOAuth,
         pi: s.pi,
         changed: () => s.access.changed(),
@@ -206,6 +209,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
   );
   app.route('/api/v1/tools', toolRoutes(s.profiles, s.invocations));
   app.route('/api/v1', shareRoutes(s.shares));
+  app.route('/api/v1/config', configurationRoutes(s));
   app.route('/api/v1/catalog', contentRoutes(s.content));
   app.route('/api/v1/profiles', profileRoutes({ ...s, publicUrl: config.PUBLIC_URL }));
   app.route('/api/v1/skills', skillRoutes(s.skills, importGit));

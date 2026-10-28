@@ -85,6 +85,20 @@
       "when": 1793168117623,
       "tag": "0011_military_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793170650960,
+      "tag": "0012_opposite_garia",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793171593648,
+      "tag": "0013_bent_timeslip",
+      "breakpoints": true
     }
   ]
 }
