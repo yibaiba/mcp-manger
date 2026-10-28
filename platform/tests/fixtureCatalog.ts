@@ -8,7 +8,7 @@ import {
   type Tool,
 } from '@modelcontextprotocol/server';
 
-export async function fixtureCatalog() {
+export async function fixtureCatalog(options: { afterProgress?: () => Promise<void> } = {}) {
   const sessions = new Map<
     string,
     { server: Server; transport: WebStandardStreamableHTTPServerTransport }
@@ -53,11 +53,13 @@ export async function fixtureCatalog() {
     server.setRequestHandler('tools/call', async (request, context) => {
       toolCount++;
       const token = request.params._meta?.progressToken;
-      if (token !== undefined)
+      if (token !== undefined) {
         await context.mcpReq.notify({
           method: 'notifications/progress',
           params: { progressToken: token, progress: 1, total: 1, message: 'done' },
         });
+        await options.afterProgress?.();
+      }
       const message = String(request.params.arguments?.message ?? 'echo');
       return {
         content: [{ type: 'text', text: message }],
