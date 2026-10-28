@@ -280,6 +280,7 @@ export class ConnectionService {
           status,
           transport: value.transport,
           source: value.source ?? 'mcp',
+          registry: value.registry,
           identityMode: value.identityMode ?? 'shared',
           lifecycle: value.lifecycle,
           health: value.health,

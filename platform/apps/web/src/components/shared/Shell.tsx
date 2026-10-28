@@ -23,6 +23,7 @@ import { Feedback } from './Controls.js';
 const navigation = [
   ['/', '概览', LayoutDashboard],
   ['/connections', 'MCP 连接', Plug],
+  ['/market', '服务市场', BookOpen],
   ['/devices', '设备', Monitor],
   ['/tools', '工具目录', Wrench],
   ['/profiles', 'Agent 配置', KeyRound],
