@@ -1,3 +1,4 @@
+import { verifyRestRestart } from './verify-rest-restart.mjs';
 import assert from 'node:assert/strict';
 import { verifyDeviceChannel } from './verify-device-channel.mjs';
 import { execFile } from 'node:child_process';
@@ -105,6 +106,12 @@ async function verifyManagement() {
   assert.equal(connections.status, 200);
   assert.deepEqual(await connections.json(), []);
   await verifyLocalManagement(cookie);
+  await verifyRestRestart({
+    origin,
+    headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
+    compose,
+    waitForHealth,
+  });
   console.log('PASS: combined application web, database health, authentication and management API');
 }
 async function verifyLocalManagement(cookie) {

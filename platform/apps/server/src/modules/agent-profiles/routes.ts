@@ -1,3 +1,4 @@
+import { availablePermissionTools } from '../permissions/tools.js';
 import type { Services } from '../../services.js';
 import { z } from 'zod';
 import { clientPresets, exportClient } from './clientExport.js';
@@ -30,6 +31,17 @@ export function profileRoutes(deps: {
     await deps.pi.revokeProfile(paramId(c));
     return c.json(profile);
   });
+  app.get('/:id/context-footprint', async (c) =>
+    c.json(
+      await deps.profiles.discovery.footprint(owner(c), {
+        profileId: paramId(c),
+        extra: await availablePermissionTools(deps.requests, {
+          ownerId: owner(c),
+          profileId: paramId(c),
+        }),
+      }),
+    ),
+  );
   app.get('/:id/export', async (c) => {
     await deps.profiles.owned(owner(c), paramId(c));
     const preset = z

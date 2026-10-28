@@ -84,3 +84,7 @@ pnpm test:pi                # 真实 Pi SDK 桥接；不调用模型，硬超时
 - [客户端配置格式与核对来源](docs/client-configurations.md)
 
 脚手架与依赖锁定信息在 `bts.jsonc` 和 `pnpm-lock.yaml`。首次使用 `create-better-t-stack@3.10.0`，生成前核对了 CLI 参数；较新脚手架要求更高 pnpm 版本，因此未升级本仓库规定的 pnpm。
+
+目录展示和声明式模板参见 [目录与配置模板](docs/catalog-and-templates.md)。
+
+- [服务市场、智能发现与 REST](docs/market-discovery-rest.md)

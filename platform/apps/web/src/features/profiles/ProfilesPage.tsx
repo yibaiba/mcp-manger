@@ -1,3 +1,4 @@
+import { DiscoveryEditor } from './DiscoveryEditor.js';
 import { CatalogEditor } from './CatalogEditor.js';
 import { WorkspacePage } from './WorkspacePage.js';
 import { Card } from '../../components/ui/card.js';
@@ -50,6 +51,7 @@ export default function ProfilesPage() {
   const [workspace, setWorkspace] = useState<string | null>(
     new URLSearchParams(window.location.search).get('workspace'),
   );
+  const [discoveryEditing, setDiscoveryEditing] = useState<Profile>();
   const [catalogEditing, setCatalogEditing] = useState<Profile>();
   const [editing, setEditing] = useState<Profile>();
   const [key, setKey] = useState<unknown>();
@@ -86,6 +88,14 @@ export default function ProfilesPage() {
           catalog.error
         }
       />
+      {discoveryEditing ? (
+        <DiscoveryEditor
+          key={discoveryEditing.id}
+          profile={discoveryEditing}
+          tools={tools.data ?? []}
+          close={() => setDiscoveryEditing(undefined)}
+        />
+      ) : null}
       {catalogEditing ? (
         <CatalogEditor
           key={catalogEditing.id}
@@ -218,6 +228,7 @@ export default function ProfilesPage() {
                   </Button>
                   <Button onClick={() => setEditing(profile)}>编辑权限</Button>
                   <Button onClick={() => setCatalogEditing(profile)}>目录展示</Button>
+                  <Button onClick={() => setDiscoveryEditing(profile)}>智能发现</Button>
                   <ClientExport profileId={profile.id} />
                   <Action
                     action={async () =>

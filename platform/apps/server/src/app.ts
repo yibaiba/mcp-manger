@@ -1,3 +1,5 @@
+import { restRoutes } from './modules/rest/routes.js';
+import { marketRoutes } from './modules/market/routes.js';
 import { configurationRoutes } from './modules/configuration/routes.js';
 import { workspaceRoutes } from './modules/workspace/routes.js';
 import { withExecution } from './modules/mcp/executionContext.js';
@@ -56,8 +58,9 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     cors({
       origin: config.WEB_ORIGIN,
       credentials: true,
-      exposeHeaders: ['mcp-session-id', 'X-Content-SHA256'],
+      exposeHeaders: ['mcp-session-id', 'X-Content-SHA256', 'X-Call-Id'],
       allowHeaders: [
+        'Idempotency-Key',
         'Content-Type',
         'Authorization',
         'mcp-session-id',
@@ -128,6 +131,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
       },
     );
   });
+  app.route('/mcp', restRoutes({ services: s, publicUrl: config.PUBLIC_URL }));
   app.all('/mcp/:profileId', async (c) => {
     const profileId = paramId(c, 'profileId');
     try {
@@ -210,6 +214,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
   app.route('/api/v1/tools', toolRoutes(s.profiles, s.invocations));
   app.route('/api/v1', shareRoutes(s.shares));
   app.route('/api/v1/config', configurationRoutes(s));
+  app.route('/api/v1/market', marketRoutes(s.market));
   app.route('/api/v1/catalog', contentRoutes(s.content));
   app.route('/api/v1/profiles', profileRoutes({ ...s, publicUrl: config.PUBLIC_URL }));
   app.route('/api/v1/skills', skillRoutes(s.skills, importGit));

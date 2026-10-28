@@ -102,6 +102,7 @@ const groups = requested.length
       ['tests/core.test.ts', 'tests/openapiOAuth.test.ts', 'tests/mcpReliability.test.ts'],
       ['tests/users.test.ts', 'tests/loginProviders.test.ts', 'tests/activity.test.ts'],
       ['tests/shares.test.ts'],
+      ['tests/market.test.ts', 'tests/discovery.test.ts', 'tests/rest.test.ts'],
       ['tests/sharesSurfaces.test.ts'],
       ['tests/sharesOAuth.test.ts'],
       ['tests/connectionBudget.test.ts'],
