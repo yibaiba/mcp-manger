@@ -8,7 +8,19 @@ MyGo v0.7.1 Native UI 已接入。自动验证：`CGO_ENABLED=0 go test -count=1
 
 界面在保留蓝灰配色的基础上，细化侧栏分组、标题层级和间距；配对表单集中呈现，本机资源数量可直接进入对应页面，资源列表与编辑区合并为连续工作区。恢复设备、身份绑定及 Skill 文件管理按需展开。深浅色、900 × 640 小窗口及各导航页面已检查内存渲染；全量 Go 测试、`go vet`、六目标重新构建与校验和检查通过。新版 `.app` 已在本机 macOS 启动并确认进程存活、日志无错误；未将进程检查视为完整桌面交互验收。
 
-未验收：三系统实机托盘、中文输入法与粘贴、重复启动激活、登录自启动、图形驱动，以及用户提供的麒麟 ARM64 机器。无 Windows/Linux 桌面测试设备可供当前会话访问，未将交叉编译结果当成运行通过。LoongArch 不在首版构建矩阵中；发行签名、公证与安装器尚未制作。使用及依赖见 [原生桌面连接器](connector-desktop.md)。
+未验收：三系统实机托盘、中文输入法与粘贴、重复启动激活、登录自启动、图形驱动，以及用户提供的麒麟 ARM64 机器。无 Windows/Linux 桌面测试设备可供当前会话访问，未将交叉编译结果当成运行通过。LoongArch 不在首版构建矩阵中；安装器及流水线验证见下节，发行签名、公证仍未完成。使用及依赖见 [原生桌面连接器](connector-desktop.md)。
+
+## 单文件安装器与 GitHub Actions（2026-10-28）
+
+新增 Linux amd64 / arm64 的 deb、rpm，Windows x64 / ARM64 合并安装 exe，以及 macOS Intel / Apple Silicon 通用 dmg、pkg，共七个安装包，附 SHA256SUMS。应用图标来自同一 SVG，包含 PNG、ICNS 和 ICO；菜单、快捷方式、卸载入口与包元数据均随安装包提供。
+
+本机完整打包及七个安装包的 SHA-256 校验通过。Debian amd64 容器真实执行 apt 安装，拉取声明的 GTK / AppIndicator 依赖，校验 desktop 文件、执行连接器 `--help`，随后卸载并验证用户配置保留。两种 RPM 的包头架构、文件列表和动态库依赖已用 rpm 工具检查，未执行 RPM 系统安装。Linux amd64 容器和本机 macOS 均成功编译 NSIS 安装器，启用警告即失败；7z 完整性检查通过，确认包含 Windows 两架构程序。macOS DMG 校验、PKG 展开、应用 ad-hoc 签名校验及 `lipo -archs` 检查通过，PKG 禁止重定位并包含 `/Applications` 下的通用应用。
+
+NSIS 最初在 macOS 使用不受支持的 `C.UTF-8` locale 时异常退出，已针对宿主设置有效 locale 后重新完整打包；安装脚本的引号警告已修正，使用 `-WX` 重新编译通过。desktop 菜单分类曾收到双主分类提示，现只保留 Development。没有把这些失败尝试计为通过。
+
+工作流 `.github/workflows/connector-installers.yml` 将六目标交叉编译、Go 测试与 Linux / Windows 打包放在 Ubuntu amd64；macOS 仅合并预编译应用并制作 DMG / PKG；最后 Ubuntu 汇总七包与校验和。手动或相关源码推送触发，Go 与打包工具使用缓存，中间产物一天、最终安装包七天。没有自动发布 Release。 首次真实 [GitHub Actions 运行](https://github.com/yibaiba/mcp-manger/actions/runs/40606498158) 已全部通过：Ubuntu 测试 / 编译 / 打包约 4 分 18 秒，macOS 封装约 36 秒，Ubuntu 汇总约 24 秒；最终 artifact 为 `connector-installers`。
+
+未实测 Windows 安装 / 卸载、Linux ARM64 / 麒麟图形界面、RPM 安装、三系统登录启动，以及 macOS PKG 写入系统应用目录。未配置 Developer ID / 公证或 Windows Authenticode 签名。容器安装、归档检查和交叉构建均不替代这些实机验收。
 
 ## 2026-10-27 设备 HMAC 认证（连接器 0.3.0）
 

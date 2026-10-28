@@ -61,6 +61,8 @@ go test -timeout 60s ./...
 go vet ./...
 cd ..
 pnpm connector:desktop:build # MyGo 原生桌面端，无 WebView / CGO
+pnpm connector:installers:setup # 首次准备 nFPM / NSIS 打包工具
+pnpm connector:installers:build # deb/rpm、Windows 安装 exe、macOS 通用 dmg/pkg
 pnpm connector:build        # macOS/Linux/Windows，amd64/arm64；包含本机管理页
 pnpm test:pi                # 真实 Pi SDK 桥接；不调用模型，硬超时 60 秒
 ```

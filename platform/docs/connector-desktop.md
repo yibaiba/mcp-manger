@@ -12,6 +12,28 @@ pnpm connector:desktop:build
 
 构建无需 Node 前端编译；这里的 pnpm/Node 只运行跨平台构建脚本。产物位于 `connector/bin/desktop/`，包括六个目标的程序、macOS `.app`、Linux `.desktop` 文件和 `SHA256SUMS`。
 
+## 单文件安装包与 GitHub Actions
+
+初次准备打包工具，在 `platform/` 运行 `pnpm connector:installers:setup`，随后运行 `pnpm connector:installers:build`。工具安装在忽略提交的 `connector/bin/tools/`；使用固定版本的 [nFPM](https://nfpm.goreleaser.com/docs/configuration/) 和 [NSIS](https://github.com/electron-userland/electron-builder-binaries/releases/tag/nsis-3.0.5.0)，NSIS 下载会校验 SHA-256。Linux amd64 构建机需安装 `p7zip-full`；本机完整打包需 macOS 的 `lipo`、`codesign`、`pkgbuild`、`hdiutil`，NSIS 的 macOS 主机程序为 x64，Apple Silicon 需要 Rosetta。
+
+版本与标识统一维护在 `connector/packaging/metadata.json`。安装包输出到 `connector/bin/installers/`，本机数据不打入安装包，卸载保留 `~/.mcplatform`：
+
+| 系统                        | 安装包                   | 安装行为                                                                                          |
+| --------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------- |
+| Linux x64 / ARM64           | 各一个 `.deb` 和 `.rpm`  | 安装到 `/usr/bin/mcplatform-connector`，带应用菜单及图标，声明 GTK / GLib / AppIndicator 依赖     |
+| Windows x64 / ARM64         | 一个 `windows-setup.exe` | 自动选择原生架构，默认装到当前用户 `LocalAppData/Programs`，提供桌面 / 开始菜单快捷方式和卸载入口 |
+| macOS Intel / Apple Silicon | 通用 `.dmg` 和 `.pkg`    | DMG 拖入 Applications；PKG 安装到 `/Applications`，禁止重定位到其它同标识应用目录                 |
+
+安装不会默认开启登录自启动。Linux 开启后写入 `$XDG_CONFIG_HOME/autostart/dev.mcplatform.connector.desktop`，默认目录为 `~/.config/autostart/`；这是登录图形桌面后启动。Windows 卸载只清理指向当前安装目录的登录启动项。
+
+GitHub 工作流在仓库根目录 `.github/workflows/connector-installers.yml`，支持手动执行以及连接器相关文件推送后执行。六目标交叉编译、Go 测试、Linux 和 Windows 安装包都在 **Ubuntu amd64** 上完成；macOS runner 仅下载预编译 `.app`，运行原生工具合并通用应用并封装 DMG / PKG，不重复编译或安装 Go / nFPM / NSIS。最后由 Linux 汇总为 `connector-installers` artifact，附七个安装包及 `SHA256SUMS`，保留七天，中间产物保留一天。构建只读仓库，不自动发布 Release。
+
+拆分执行命令为 `pnpm connector:installers:build --targets=linux,windows` 与 `pnpm connector:installers:build --targets=macos --skip-build`。跨 job 的 `.app` 使用 tar 传递，保留可执行权限和目录结构。工作流缓存 Go 编译缓存和打包工具，不安装 Node 应用依赖。
+
+当前 macOS 应用使用 ad-hoc 签名校验包完整性，安装包没有 Developer ID 签名或公证，Windows 安装包也没有 Authenticode 签名；首次打开仍可能遇到系统信任提示。未把包结构校验、Linux 容器安装或交叉编译视为 Windows / 麒麟实机桌面与启动验收。
+
+## 直接运行构建产物
+
 图标源文件为 `connector/internal/desktop/branding/mark.svg`。构建脚本使用现有 MyGo 内存渲染器导出蓝底应用 SVG/PNG、彩色和单色托盘 SVG/PNG 及多尺寸 `.icns`，不增加 CGO 或外部图形工具依赖。macOS `.app` 在 `Contents/Resources` 中包含 `.icns` 并配置 `CFBundleIconFile`；运行时也会设置 Dock 图标，Windows/Linux 设置窗口图标。单独重新导出可在 `connector/` 运行 `CGO_ENABLED=0 go run ./scripts/icons`。
 
 - macOS：使用对应架构目录里的 `MCP Platform Connector.app`，建议移至“应用程序”后启动。
@@ -47,6 +69,6 @@ pnpm connector:desktop:build
 
 首版构建目标为 macOS、Windows、Linux 的 amd64/arm64；**不包含 loong64**。麒麟 ARM64 已提供的 GLib 2.64.6 / GTK 3.24.23 满足此前检查到的 API 下限，实际显示、输入法、OpenGL 与托盘仍需在该设备验证。
 
-当前自动验证覆盖无 CGO 六目标构建、已有 Go 测试、认证状态、订阅通知、存储锁释放、原生界面导航和编辑草稿。界面测试使用 MyGo 的内存渲染器，不能替代 Windows/Linux/macOS 实机的托盘、中文输入法、登录启动和图形驱动验收。构建产物尚未进行发行签名、公证或安装器封装。
+当前自动验证覆盖无 CGO 六目标构建、已有 Go 测试、认证状态、订阅通知、存储锁释放、原生界面导航和编辑草稿。界面测试使用 MyGo 的内存渲染器，不能替代 Windows/Linux/macOS 实机的托盘、中文输入法、登录启动和图形驱动验收。安装器及流水线验收见上文；发行签名、公证与三系统桌面实机验收仍未完成。
 
 诊断日志位于 `~/.mcplatform/connector-desktop.log`，本机页会显示操作错误；日志和本机目录可能涉及本机路径或服务诊断，不属于平台备份。
