@@ -40,7 +40,7 @@ export function packageMacOS(stage) {
     '--identifier',
     metadata.identifier,
     '--version',
-    metadata.version,
+    metadata.numericVersion,
     '--install-location',
     '/',
     `${prefix}.pkg`,

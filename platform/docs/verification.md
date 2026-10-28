@@ -10,6 +10,14 @@ MyGo v0.7.1 Native UI 已接入。自动验证：`CGO_ENABLED=0 go test -count=1
 
 未验收：三系统实机托盘、中文输入法与粘贴、重复启动激活、登录自启动、图形驱动，以及用户提供的麒麟 ARM64 机器。无 Windows/Linux 桌面测试设备可供当前会话访问，未将交叉编译结果当成运行通过。LoongArch 不在首版构建矩阵中；安装器及流水线验证见下节，发行签名、公证仍未完成。使用及依赖见 [原生桌面连接器](connector-desktop.md)。
 
+## Release 发布流程调整（2026-10-28）
+
+安装包及平台 Docker 发布改为 `release.published` 触发，普通 push 不触发；手动执行只验证构建。发布时从标签读取版本，将七个安装包与 SHA256SUMS 附到同一 Release，并发布 server / web 两镜像的 amd64 / arm64 manifest 至 GHCR。正式版本更新 latest，预发布不更新 latest。Compose 镜像覆盖文件移除本地 build 配置，不自动执行生产迁移。版本解析、恶意版本输入拒绝、Compose 合并结果和 actionlint 已检查。
+
+此前主分支运行 [40607560708](https://github.com/yibaiba/mcp-manger/actions/runs/40607560708) 在 nFPM 安装阶段因 proxy.golang.org HTTP/2 INTERNAL_ERROR 失败，未计为通过。外层 CI 加载了独立 platform 的 ESLint 配置且缺少其依赖；根 ESLint 的全局忽略现已加入 platform，独立项目继续使用自己的检查命令。没有加入隐藏重试或忽略下载错误。
+
+Release 附件上传和 GHCR 推送需要一次真实 Release 发布；当前未为验收创建虚构 Release，未宣称已上传或已发布镜像。
+
 ## 单文件安装器与 GitHub Actions（2026-10-28）
 
 新增 Linux amd64 / arm64 的 deb、rpm，Windows x64 / ARM64 合并安装 exe，以及 macOS Intel / Apple Silicon 通用 dmg、pkg，共七个安装包，附 SHA256SUMS。应用图标来自同一 SVG，包含 PNG、ICNS 和 ICO；菜单、快捷方式、卸载入口与包元数据均随安装包提供。
