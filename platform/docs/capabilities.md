@@ -50,4 +50,4 @@ form 和 URL 均需明确接受、拒绝或取消。URL 打开前确认；Pi 等
 
 宿主 iframe 指向不同源 Sandbox Proxy，再创建 opaque-origin 内层 iframe。服务端发送真实 CSP，代理校验父窗口 origin/source 和内层消息来源；App 不获得平台 Cookie、接入凭证。摄像头、麦克风、定位和剪贴板权限当前不授予，若 App 声明要求会明确显示受限提示。
 
-开发默认 localhost:4302；生产默认 apps.<PUBLIC_URL 主机>，APPS_ORIGIN 可配置，必须与平台不同源。部署步骤见 [部署说明](deployment.md)。浏览器 App 初始化、官方示例、公网隔离域名和真实模型任务仍须按 [验收记录](verification.md) 标记实际结果。
+开发与生产均通过平台入口的 `/_apps/sandbox` 提供 Apps 隔离页，生产使用单域名、4300 端口；浏览器隔离由 sandbox 与 CSP 保证，不再配置 Apps 4302 端口或独立域名。部署步骤见 [部署说明](deployment.md)。浏览器 App 初始化、官方示例和真实模型任务仍须按 [验收记录](verification.md) 标记实际结果。

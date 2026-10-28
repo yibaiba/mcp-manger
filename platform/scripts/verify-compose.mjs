@@ -14,6 +14,7 @@ await mkdir(resolve(cwd, '.data'), { recursive: true });
 const directory = await mkdtemp(resolve(cwd, '.data/compose-acceptance-'));
 const project = `platform-acceptance-${Date.now()}`;
 const origin = 'http://localhost:54330';
+const image = process.argv[2] ?? 'mcp-platform:latest';
 const sandboxOrigin = origin;
 const environment = {
   ...process.env,
@@ -34,7 +35,7 @@ await writeFile(
   override,
   `services:
   server:
-    image: mcp-platform:latest
+    image: ${JSON.stringify(image)}
     ports: !override
       - '127.0.0.1:54330:4300'
 `,

@@ -57,6 +57,7 @@ func (p Params) key() string {
 }
 
 type Entry struct {
+	ConnectionID  string
 	Diagnostics   *diagnosticWriter
 	Secrets       []string
 	SourceID      string
@@ -149,7 +150,7 @@ func (m *Manager) connect(ctx context.Context, p Params) (*mcp.ClientSession, er
 		e = nil
 	}
 	if e == nil {
-		e = &Entry{Fingerprint: string(encoded), ResourceID: p.Config.DeviceResourceID, SourceID: p.Config.DeviceSourceID, Secrets: credentialStrings(p.Config)}
+		e = &Entry{ConnectionID: p.ConnectionID, Fingerprint: string(encoded), ResourceID: p.Config.DeviceResourceID, SourceID: p.Config.DeviceSourceID, Secrets: credentialStrings(p.Config)}
 		m.entries[p.key()] = e
 	}
 	if e.Session != nil {
@@ -358,12 +359,12 @@ func (m *Manager) Status() []map[string]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	result := []map[string]string{}
-	for id, e := range m.entries {
+	for _, e := range m.entries {
 		status := "connected"
 		if e.Session == nil || e.LastError != "" {
 			status = "error"
 		}
-		result = append(result, map[string]string{"id": id, "status": status, "error": e.LastError})
+		result = append(result, map[string]string{"id": e.ConnectionID, "status": status, "error": e.LastError})
 	}
 	return result
 }

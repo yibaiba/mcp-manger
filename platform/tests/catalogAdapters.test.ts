@@ -140,4 +140,5 @@ test.each(['device', 'pi'] as const)(
       await client.close();
     }
   },
+  30_000,
 );

@@ -63,6 +63,8 @@ const groups = requested.length
         'tests/lifecycle.test.ts',
         '--exclude',
         'tests/upstreamOAuth.test.ts',
+        '--exclude',
+        'tests/connectionBudget.test.ts',
       ],
       [
         'tests/workspacePermissions.test.ts',
@@ -70,6 +72,7 @@ const groups = requested.length
         'tests/workspaceHandoffs.test.ts',
       ],
       ['tests/pi.test.ts'],
+      ['tests/connectionBudget.test.ts'],
       ['tests/upstreamOAuth.test.ts'],
       ['tests/catalog.test.ts', 'tests/catalogAdapters.test.ts'],
       [

@@ -26,6 +26,8 @@ export default function ConnectionsPage() {
   const connections = useQuery({
     queryKey: ['connections'],
     queryFn: () => api<Connection[]>('/connections'),
+    refetchInterval: (query) =>
+      query.state.data?.some((connection) => connection.health?.recover) ? 5000 : false,
   });
   const devices = useQuery({ queryKey: ['devices'], queryFn: () => api<Device[]>('/devices') });
   return (
@@ -86,6 +88,21 @@ export default function ConnectionsPage() {
                 活跃会话：{connection.sessions?.length ?? 0}
               </small>
               {connection.error ? <div className="error">{connection.error}</div> : null}
+              {connection.recovery
+                ?.filter((state) => state.status !== 'idle')
+                .map((state, index) => (
+                  <div key={`${state.sessionId}-${index}`} role="status">
+                    自动恢复：
+                    {state.status === 'blocked'
+                      ? '待配置或授权'
+                      : state.status === 'recovering'
+                        ? '正在尝试'
+                        : '等待重试'}{' '}
+                    · 已尝试 {state.attempts} 次
+                    {state.nextAt ? ` · 下次 ${new Date(state.nextAt).toLocaleString()}` : ''}
+                    {state.error ? <div className="error">{state.error}</div> : null}
+                  </div>
+                ))}
               <div className="row-actions">
                 <Button variant="outline" onClick={() => setEditing(connection)}>
                   编辑
