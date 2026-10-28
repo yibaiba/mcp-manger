@@ -20,6 +20,7 @@ export function packageWindows() {
       `-DAPP_NAME=${metadata.name}`,
       `-DAPP_ID=${metadata.identifier}`,
       `-DAPP_VERSION=${metadata.version}`,
+      `-DAPP_NUMERIC_VERSION=${metadata.numericVersion}`,
       `-DPAYLOAD_DIR=${desktopRoot}`,
       `-DAPP_ICON=${join(artworkRoot, 'connector.ico')}`,
       `-DOUTPUT_FILE=${output}`,

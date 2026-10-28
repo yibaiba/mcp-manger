@@ -24,6 +24,26 @@ Apps 使用单独源站，Caddy 将 APPS_DOMAIN 代理至 server:4302，仅暴�
 
 构建使用 BuildKit：先按锁文件、workspace 配置与补丁执行 `pnpm fetch`，再复制源码并离线安装。下载目录使用独立缓存挂载；源码或文档变化不会使下载层失效，中断后的重试也能复用已下载的包。Git 与 CA 系统包位于独立基础层，不随应用源码重新安装。首次下载仍需网络，缺包或下载失败会直接终止构建。实现参考 [pnpm Docker 构建](https://pnpm.io/docker) 与 [Docker 缓存分层](https://docs.docker.com/build/cache/optimize/)。
 
+## Release 镜像
+
+主程序已有 `Dockerfile` 的 `server` / `web` 两个 target。发布 GitHub Release 后，`.github/workflows/connector-installers.yml` 使用 Ubuntu amd64 + Buildx / QEMU 构建并发布两种架构（linux/amd64、linux/arm64），平台构建上下文为 `platform/`，与外层 MCPHub 镜像分开：
+
+- `ghcr.io/yibaiba/mcp-manger-platform-server:<版本>`
+- `ghcr.io/yibaiba/mcp-manger-platform-web:<版本>`
+
+发布标签 `v0.3.0` 对应镜像标签 `0.3.0`；正式 Release 同时更新 `latest`，预发布不更新 `latest`。普通 push 不触发发布。Actions 手动执行只做构建验证，不推镜像或上传 Release 附件。镜像构建内执行类型检查与生产构建；使用 GitHub Token 登录 GHCR，无需配置 Docker Hub 凭证。首次发布后检查 GHCR 包的访问权限；私有镜像的部署机器需要先登录 GHCR。
+
+按前文准备 `.env`，加入 `PLATFORM_VERSION=0.3.0`，使用镜像覆盖文件部署；该覆盖会移除本地 build 配置。迁移仍是显式步骤，不在发布流水线中访问生产数据库：
+
+```sh
+docker compose -f compose.yaml -f compose.images.yaml pull
+docker compose -f compose.yaml -f compose.images.yaml up -d db
+docker compose -f compose.yaml -f compose.images.yaml run --rm server pnpm db:migrate
+docker compose -f compose.yaml -f compose.images.yaml up -d
+```
+
+派生仓库可用 `PLATFORM_IMAGE_PREFIX=ghcr.io/<owner>/<repo>-platform` 调整镜像前缀。Release 必须指向包含该工作流的提交，通过 GitHub 发布界面或 `gh release create` 发布；仅推送 tag 不触发本平台发布。GitHub 文档说明 [Release 触发条件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release) 和 [向 GHCR 发布镜像](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)；多架构构建使用 [Docker 官方 Buildx / QEMU 流程](https://docs.docker.com/build/ci/github-actions/multi-platform/)。
+
 ## 升级与回退
 
 应用迁移前先停止服务并备份数据库、整个 DATA_DIR、SQL 与 Pi 加密密钥。0003/0004 增加授权绑定、目录快照和加密交互状态；0005/0006 增加工作空间修订、任务事件、权限申请、临时授权、身份指纹与交接。0007 增加本机来源、同步绑定和持久操作；新管理入口需要连接器 0.2.0。旧 Profile 省略新增字段时保留已有值，不迁移 MCPHub token。0008 移除设备 tokenHash，增加加密密钥及版本、重配目标关联；保留原设备和全部资源关联，但旧设备必须重新配对。连接器和服务端必须同时升级到设备协议 0.3.0，不提供旧 Bearer 兼容入口。Windows stdio host 与连接器必须使用相同版本。

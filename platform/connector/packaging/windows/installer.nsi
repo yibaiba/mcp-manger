@@ -10,7 +10,7 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 Icon "${APP_ICON}"
 UninstallIcon "${APP_ICON}"
-VIProductVersion "${APP_VERSION}.0"
+VIProductVersion "${APP_NUMERIC_VERSION}.0"
 VIAddVersionKey "ProductName" "${APP_NAME}"
 VIAddVersionKey "FileDescription" "MCP Platform Connector Setup"
 VIAddVersionKey "FileVersion" "${APP_VERSION}"

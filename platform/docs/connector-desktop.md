@@ -16,7 +16,7 @@ pnpm connector:desktop:build
 
 初次准备打包工具，在 `platform/` 运行 `pnpm connector:installers:setup`，随后运行 `pnpm connector:installers:build`。工具安装在忽略提交的 `connector/bin/tools/`；使用固定版本的 [nFPM](https://nfpm.goreleaser.com/docs/configuration/) 和 [NSIS](https://github.com/electron-userland/electron-builder-binaries/releases/tag/nsis-3.0.5.0)，NSIS 下载会校验 SHA-256。Linux amd64 构建机需安装 `p7zip-full`；本机完整打包需 macOS 的 `lipo`、`codesign`、`pkgbuild`、`hdiutil`，NSIS 的 macOS 主机程序为 x64，Apple Silicon 需要 Rosetta。
 
-版本与标识统一维护在 `connector/packaging/metadata.json`。安装包输出到 `connector/bin/installers/`，本机数据不打入安装包，卸载保留 `~/.mcplatform`：
+应用标识与本地构建默认版本维护在 `connector/packaging/metadata.json`；发布构建从 Release 标签（如 `v0.3.0` 或 `v0.4.0-rc.1`）读取版本，覆盖文件名及应用版本。Windows / macOS 的数字版本字段使用其中的 X.Y.Z 部分。安装包输出到 `connector/bin/installers/`，本机数据不打入安装包，卸载保留 `~/.mcplatform`：
 
 | 系统                        | 安装包                   | 安装行为                                                                                          |
 | --------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------- |
@@ -26,9 +26,9 @@ pnpm connector:desktop:build
 
 安装不会默认开启登录自启动。Linux 开启后写入 `$XDG_CONFIG_HOME/autostart/dev.mcplatform.connector.desktop`，默认目录为 `~/.config/autostart/`；这是登录图形桌面后启动。Windows 卸载只清理指向当前安装目录的登录启动项。
 
-GitHub 工作流在仓库根目录 `.github/workflows/connector-installers.yml`，支持手动执行以及连接器相关文件推送后执行。六目标交叉编译、Go 测试、Linux 和 Windows 安装包都在 **Ubuntu amd64** 上完成；macOS runner 仅下载预编译 `.app`，运行原生工具合并通用应用并封装 DMG / PKG，不重复编译或安装 Go / nFPM / NSIS。最后由 Linux 汇总为 `connector-installers` artifact，附七个安装包及 `SHA256SUMS`，保留七天，中间产物保留一天。构建只读仓库，不自动发布 Release。
+GitHub 工作流在仓库根目录 `.github/workflows/connector-installers.yml`，只在 Release 发布（`release.published`）时自动执行，普通 push / PR 不触发打包；也保留手动验证入口，手动执行不上传 Release 附件或推送镜像。六目标交叉编译、Go 测试、Linux 和 Windows 安装包都在 **Ubuntu amd64** 上完成；macOS runner 仅下载预编译 `.app`，运行原生工具合并通用应用并封装 DMG / PKG，不重复编译或安装 Go / nFPM / NSIS。最后由 Linux 汇总为 `connector-installers` artifact，附七个安装包及 `SHA256SUMS`，保留七天，中间产物保留一天。发布触发时，七个安装包及 `SHA256SUMS` 会上传到该 Release，重跑只替换同名附件；不会创建新的 Release。
 
-拆分执行命令为 `pnpm connector:installers:build --targets=linux,windows` 与 `pnpm connector:installers:build --targets=macos --skip-build`。跨 job 的 `.app` 使用 tar 传递，保留可执行权限和目录结构。工作流缓存 Go 编译缓存和打包工具，不安装 Node 应用依赖。
+拆分执行命令为 `pnpm connector:installers:build --targets=linux,windows` 与 `pnpm connector:installers:build --targets=macos --skip-build`。跨 job 的 `.app` 使用 tar 传递，保留可执行权限和目录结构。连接器构建缓存 Go 编译缓存和打包工具，不安装 Node 应用依赖。同一发布工作流还会构建平台 Docker 镜像，详见 [发布镜像部署](deployment.md#release-镜像)。
 
 当前 macOS 应用使用 ad-hoc 签名校验包完整性，安装包没有 Developer ID 签名或公证，Windows 安装包也没有 Authenticode 签名；首次打开仍可能遇到系统信任提示。未把包结构校验、Linux 容器安装或交叉编译视为 Windows / 麒麟实机桌面与启动验收。
 

@@ -3,11 +3,12 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, renameSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+import { readMetadata } from './connector-packaging/metadata.mjs';
 
 const root = fileURLToPath(new URL('../connector/', import.meta.url));
 const destination = join(root, 'bin', 'desktop');
-const metadata = JSON.parse(readFileSync(join(root, 'packaging', 'metadata.json'), 'utf8'));
-const { name: appName, identifier, version } = metadata;
+const metadata = readMetadata();
+const { name: appName, identifier, version, numericVersion } = metadata;
 const artwork = join(root, 'internal', 'desktop', 'branding');
 const sums = [];
 execFileSync('go', ['run', './scripts/icons'], {
@@ -55,8 +56,8 @@ for (const GOOS of ['darwin', 'linux', 'windows']) {
 <key>CFBundleExecutable</key><string>connector-desktop</string>
 <key>CFBundleIconFile</key><string>connector.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>${version}</string>
-<key>CFBundleShortVersionString</key><string>${version}</string>
+<key>CFBundleVersion</key><string>${numericVersion}</string>
+<key>CFBundleShortVersionString</key><string>${numericVersion}</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
