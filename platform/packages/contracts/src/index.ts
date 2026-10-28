@@ -277,5 +277,3 @@ export type SkillPackage = z.infer<typeof skillPackage>;
 export { catalogOptions, type CatalogOptions } from './catalogOptions.js';
 
 export * from './manifest.js';
-
-
