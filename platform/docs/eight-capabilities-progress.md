@@ -7,7 +7,7 @@
 | 一 | Python 3.13.9/uv 固定运行环境、统一预算、可选后台恢复 | [PR #4](https://github.com/yibaiba/mcp-manger/pull/4) |
 | 二 | admin/member、账号启停与 SSO、两种共享身份、调用记录、持久日志及 metrics | [PR #5](https://github.com/yibaiba/mcp-manger/pull/5) |
 | 三 | 统一目录投影、别名/隐藏参数、版本化 manifest 与自动推进 | [PR #6](https://github.com/yibaiba/mcp-manger/pull/6) |
-| 四 | 官方 Registry、授权目录语义检索及 Token 估算、OpenAPI/可续传 REST | 第四阶段 PR |
+| 四 | 官方 Registry、授权目录语义检索及 Token 估算、OpenAPI/可续传 REST | [PR #7](https://github.com/yibaiba/mcp-manger/pull/7) |
 
 ## 自动化与真实运行验证
 
