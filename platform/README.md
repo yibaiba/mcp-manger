@@ -6,7 +6,7 @@
 
 ## 本地启动
 
-要求 Node.js 22.19+、pnpm **10.12.4**、PostgreSQL 17；构建设备连接器需要 Go 1.25+。
+要求 Node.js 22.19+、pnpm **10.12.4**、PostgreSQL 17；构建设备连接器需要 Go 1.27.3+。
 
 ```sh
 cd platform
@@ -60,6 +60,7 @@ cd connector
 go test -timeout 60s ./...
 go vet ./...
 cd ..
+pnpm connector:desktop:build # MyGo 原生桌面端，无 WebView / CGO
 pnpm connector:build        # macOS/Linux/Windows，amd64/arm64；包含本机管理页
 pnpm test:pi                # 真实 Pi SDK 桥接；不调用模型，硬超时 60 秒
 ```
@@ -70,6 +71,7 @@ pnpm test:pi                # 真实 Pi SDK 桥接；不调用模型，硬超时
 
 - [部署与备份恢复](docs/deployment.md)
 - [设备连接器与三平台自启动](docs/connector.md)
+- [原生桌面连接器与托盘](docs/connector-desktop.md)
 - [接口、权限与协议](docs/api.md)
 - [内置 Pi 配置与验收](docs/pi.md)
 - [验证记录和待验收项](docs/verification.md)

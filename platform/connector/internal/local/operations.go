@@ -31,7 +31,7 @@ func (s *Service) background(request model.Request, remote bool) {
 	s.state.Operations[op.ID] = op
 	s.state.Revision++
 	saveErr := s.options.Store.Save(s.state)
-	notify := s.onchange
+	notify := s.notifierLocked()
 	s.mu.Unlock()
 	if saveErr != nil {
 		s.options.Error(saveErr)

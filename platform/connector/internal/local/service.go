@@ -29,12 +29,15 @@ type Options struct {
 	Changed    func(string) error
 }
 type Service struct {
-	mu       sync.Mutex
-	state    model.State
-	options  Options
-	ctx      context.Context
-	onchange func()
-	active   map[string]context.CancelFunc
+	mu             sync.Mutex
+	state          model.State
+	options        Options
+	ctx            context.Context
+	onchange       func()
+	subscribers    map[uint64]func()
+	nextSubscriber uint64
+	workers        sync.WaitGroup
+	active         map[string]context.CancelFunc
 }
 
 func New(ctx context.Context, options Options) (*Service, error) {
@@ -80,7 +83,7 @@ func (s *Service) Watch(ctx context.Context) {
 				s.state.Revision++
 				err = s.options.Store.Save(s.state)
 			}
-			notify := s.onchange
+			notify := s.notifierLocked()
 			s.mu.Unlock()
 			if err != nil {
 				s.options.Error(err)
@@ -134,12 +137,15 @@ func (s *Service) mergeScan(resources map[string]model.Resource, issues []string
 func (s *Service) Execute(ctx context.Context, request model.Request, remote bool) (any, error) {
 	s.mu.Lock()
 	defer func() {
-		notify := s.onchange
+		notify := s.notifierLocked()
 		s.mu.Unlock()
 		if request.OperationID != "" && notify != nil {
 			notify()
 		}
 	}()
+	if err := s.ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -169,7 +175,8 @@ func (s *Service) executeWrite(ctx context.Context, request model.Request, remot
 		return nil, err
 	}
 	if request.Action == "scan" || request.Action == "start" || request.Action == "stop" {
-		go s.background(request, remote)
+		s.workers.Add(1)
+		go func() { defer s.workers.Done(); s.background(request, remote) }()
 		return publicOperation(op, remote), nil
 	}
 	result, err := s.mutate(ctx, mutation{Request: request, Remote: remote, Operation: &op})
