@@ -23,9 +23,9 @@ pnpm db:migrate
 pnpm dev
 ```
 
-管理界面 <http://localhost:4301>，API <http://localhost:4300>，Apps 隔离服务 <http://localhost:4302>，由同一后端启动。在“连接”选择平台直连、Pi 桥接或设备连接器，添加 Streamable HTTP、旧版 SSE 或 stdio 服务，点击“连接 / 刷新目录”，再到“工具目录”实际调用。也可选择独立的 OpenAPI 来源，预览并选择操作发布。stdio 命令在所选执行位置运行：平台直连/Pi 使用平台主机（Docker 的 server 容器），设备连接器使用所选设备。服务返回错误会直接展示；连接配置中的请求头和环境变量加密保存在数据库，不在列表中返回。
+管理界面 <http://localhost:4301>，API <http://localhost:4300>，Apps 沙箱资源通过同一后端的 `/_apps/*` 路径提供，不再另开端口。在“连接”选择平台直连、Pi 桥接或设备连接器，添加 Streamable HTTP、旧版 SSE 或 stdio 服务，点击“连接 / 刷新目录”，再到“工具目录”实际调用。也可选择独立的 OpenAPI 来源，预览并选择操作发布。stdio 命令在所选执行位置运行：平台直连/Pi 使用平台主机（Docker 的 server 容器），设备连接器使用所选设备。服务返回错误会直接展示；连接配置中的请求头和环境变量加密保存在数据库，不在列表中返回。
 
-开发启动从 `platform/.env` 读取配置；源代码生产启动 `pnpm start`，不依赖工作目录。`pnpm build` 验证后端编译并产出前端静态文件。后端部署使用 `tsx` 源码入口，以支持按需加载内置 Pi 运行时；不要直接运行 `apps/server/dist`。
+开发启动从 `platform/.env` 读取配置；源代码生产启动 `pnpm start`，不依赖工作目录。`pnpm build` 验证后端编译并产出前端静态文件。后端部署使用 `tsx` 源码入口，以支持按需加载内置 Pi 运行时；不要直接运行 `apps/server/dist`。生产模式（`NODE_ENV=production`）在 4300 端口同时提供网页和 API，Docker 使用单个前后端镜像；对外只需一个域名和 4300 端口，可直接访问或使用已有 Nginx，见 [部署说明](docs/deployment.md#release-镜像)。
 
 ## 已实现
 

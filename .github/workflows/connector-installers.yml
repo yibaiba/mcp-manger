@@ -160,7 +160,7 @@ jobs:
         run: gh release upload "$RELEASE_TAG" installers/* --repo "$GITHUB_REPOSITORY" --clobber
 
   docker:
-    name: Build and publish platform images
+    name: Build and publish platform image
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -180,43 +180,23 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Server image metadata
-        id: server
+      - name: Platform image metadata
+        id: image
         uses: docker/metadata-action@v6
         with:
-          images: ${{ needs.prepare.outputs.image-prefix }}-server
+          images: ${{ needs.prepare.outputs.image-prefix }}
           tags: |
             type=raw,value=${{ needs.prepare.outputs.version }}
             type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
-      - name: Web image metadata
-        id: web
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ needs.prepare.outputs.image-prefix }}-web
-          tags: |
-            type=raw,value=${{ needs.prepare.outputs.version }}
-            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
-      - name: Build server image
+      - name: Build platform image
         uses: docker/build-push-action@v7
         with:
           context: ./platform
           file: ./platform/Dockerfile
-          target: server
+          target: app
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'release' }}
-          tags: ${{ steps.server.outputs.tags }}
-          labels: ${{ steps.server.outputs.labels }}
-          cache-from: type=gha,scope=platform-images
-          cache-to: type=gha,mode=max,scope=platform-images
-      - name: Build web image
-        uses: docker/build-push-action@v7
-        with:
-          context: ./platform
-          file: ./platform/Dockerfile
-          target: web
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name == 'release' }}
-          tags: ${{ steps.web.outputs.tags }}
-          labels: ${{ steps.web.outputs.labels }}
+          tags: ${{ steps.image.outputs.tags }}
+          labels: ${{ steps.image.outputs.labels }}
           cache-from: type=gha,scope=platform-images
           cache-to: type=gha,mode=max,scope=platform-images

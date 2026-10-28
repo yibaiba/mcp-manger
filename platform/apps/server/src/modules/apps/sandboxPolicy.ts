@@ -35,10 +35,7 @@ export const resourceInput = z
       .default({ resourceDomains: [], connectDomains: [], frameDomains: [], baseUriDomains: [] }),
   })
   .strict();
-export function framePolicy(
-  csp: z.infer<typeof resourceInput>['csp'],
-  parents: readonly string[] = [],
-) {
+export function framePolicy(csp: z.infer<typeof resourceInput>['csp']) {
   const resources = csp.resourceDomains.join(' ');
   return [
     "default-src 'none'",
@@ -52,7 +49,8 @@ export function framePolicy(
     `base-uri ${csp.baseUriDomains.join(' ') || "'none'"}`,
     "object-src 'none'",
     "form-action 'none'",
-    `frame-ancestors 'self' ${parents.join(' ')}`,
+    // An opaque data: proxy cannot be represented in a frame-ancestors allowlist.
+    // Isolation is enforced by the response's sandbox policy and one-use document URL.
     'sandbox allow-scripts allow-forms',
   ].join('; ');
 }

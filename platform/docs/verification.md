@@ -10,9 +10,21 @@ MyGo v0.7.1 Native UI 已接入。自动验证：`CGO_ENABLED=0 go test -count=1
 
 未验收：三系统实机托盘、中文输入法与粘贴、重复启动激活、登录自启动、图形驱动，以及用户提供的麒麟 ARM64 机器。无 Windows/Linux 桌面测试设备可供当前会话访问，未将交叉编译结果当成运行通过。LoongArch 不在首版构建矩阵中；安装器及流水线验证见下节，发行签名、公证仍未完成。使用及依赖见 [原生桌面连接器](connector-desktop.md)。
 
+## 单一应用镜像（2026-10-28）
+
+Apps 改用 `data:` 代理 iframe 获得独立 opaque origin，保留双层 iframe、SDK 消息桥、一次性文档及响应 CSP sandbox；专用 frame 创建端点仅对 null Origin 开放不携带凭证的 CORS，管理 API 未放开 null Origin。opaque 祖先无法写入 frame-ancestors 白名单，因此文档不再依赖该指令，改以固定 iframe sandbox / 响应 CSP sandbox、父子窗口身份、一次性随机地址隔离。
+
+前后端合并为一个 `mcp-manger-platform` 应用镜像、一个 Node 服务进程，生产模式后端同时提供页面、静态文件、API、MCP、WebSocket 和 Apps 沙箱资源。发布流水线移除 server / web 两次镜像构建，改为只构建 `app` target 的 amd64 / arm64 镜像。按用户要求移除 Caddy，应用只监听 / 暴露 4300；网页、API、MCP、WebSocket 和 Apps 共用公开域名及端口。旧 Apps 域名 / 端口配置已移除。
+
+新网页服务测试覆盖首页、深层链接刷新、静态资源 MIME、HEAD、API 路由、缺失资源 / API、不允许的 POST、目录穿越及缺少生产构建。最初误用 Hono `.all()` 的路径数组导致保留路径未命中，同时类型检查报错；改为逐路径注册后通过。最终网页 / Apps 两个测试文件共 9 项通过；类型检查、ESLint、冻结锁文件的 Docker 生产构建和 actionlint 通过。
+
+本轮在单端口生产容器上使用真实 Chrome / Playwright 和官方 SDK 夹具，验证 App 初始化、初始工具结果、App 专用工具调用、主题、全屏几何、同一 iframe / 状态保持、关闭与卸载；代理与工具 iframe 的 origin 均为 `null`，读取父窗口 DOM、Cookie、localStorage 均实际抛出 SecurityError，浏览器无业务错误。首次运行因脚本仍匹配旧按钮完整名称超时，按当前页面修正定位后重跑通过；没有修改产品页面绕过检查。另一次临时包装器从错误工作目录启动，找不到 Go 验收二进制；已在 platform 工作目录重跑，未计作通过。
+
+完整临时 Compose 验收随后退出码 0：打包的 pnpm 禁网运行、空库迁移与重复迁移、生产页面 / 静态资源 / 深层链接、登录及管理 API、真实 Go HMAC WebSocket / 服务重启重连 / 重配 / 撤销、Apps 单次文档与上述浏览器交互、真实无模型 Pi 发现和调用均通过。本次独立数据库与文件卷已清理；不代表公网 HTTPS、供应商 OAuth 或模型任务已实测。浏览器复现命令和范围见 [Apps 浏览器验收](apps-browser.md)。
+
 ## Release 发布流程调整（2026-10-28）
 
-安装包及平台 Docker 发布改为 `release.published` 触发，普通 push 不触发；手动执行只验证构建。发布时从标签读取版本，将七个安装包与 SHA256SUMS 附到同一 Release，并发布 server / web 两镜像的 amd64 / arm64 manifest 至 GHCR。正式版本更新 latest，预发布不更新 latest。Compose 镜像覆盖文件移除本地 build 配置，不自动执行生产迁移。版本解析、恶意版本输入拒绝、Compose 合并结果和 actionlint 已检查。
+安装包及平台 Docker 发布改为 `release.published` 触发，普通 push 不触发；手动执行只验证构建。发布时从标签读取版本，将七个安装包与 SHA256SUMS 附到同一 Release，并发布 Docker 镜像的 amd64 / arm64 manifest 至 GHCR（两镜像实现已由上节单镜像方案替代）。正式版本更新 latest，预发布不更新 latest。Compose 镜像覆盖文件移除本地 build 配置，不自动执行生产迁移。版本解析、恶意版本输入拒绝、Compose 合并结果和 actionlint 已检查。
 
 此前主分支运行 [40607560708](https://github.com/yibaiba/mcp-manger/actions/runs/40607560708) 在 nFPM 安装阶段因 proxy.golang.org HTTP/2 INTERNAL_ERROR 失败，未计为通过。外层 CI 加载了独立 platform 的 ESLint 配置且缺少其依赖；根 ESLint 的全局忽略现已加入 platform，独立项目继续使用自己的检查命令。没有加入隐藏重试或忽略下载错误。
 
@@ -135,7 +147,7 @@ NSIS 最初在 macOS 使用不受支持的 `C.UTF-8` locale 时异常退出，�
 | 项目                   | 当前状态 / 所需条件                                                                           |
 | ---------------------- | --------------------------------------------------------------------------------------------- |
 | Docker 镜像端到端      | 2026-10-27 已补充通过本地构建、迁移和容器启动，详见本页最新补充验收；旧下载超时保留为历史记录 |
-| 公网 HTTPS             | 未配置云域名；Caddy 证书签发、WSS 跨公网未实测                                                |
+| 公网 HTTPS             | 未配置云域名；用户反向代理的证书与 WSS 跨公网未实测                                           |
 | Windows + 另一台设备   | 需要实际 Windows 和另一台设备；包括重启自启动、撤销、桌面程序和权限环境                       |
 | Cloudflare 直连 OAuth  | 需要实际账号、回调域名及权限；本地 SDK OAuth 测试不能替代                                     |
 | Pi → Vercel OAuth      | 需要实际 Vercel 账号和回调；与平台直连分开验收                                                |
