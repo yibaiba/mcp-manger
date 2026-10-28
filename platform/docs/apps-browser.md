@@ -2,6 +2,10 @@
 
 2026-10-27 使用独立 Chrome + Playwright 1.58.2，未读取用户 Chrome 的登录资料。平台、Sandbox、MCP 服务均为实际本地进程；没有关闭 iframe sandbox、CSP 或浏览器进程沙箱。
 
+## 单域名单端口复验（2026-10-28）
+
+使用合并后的生产 Docker 应用，仅映射一个回环端口到 4300，所有页面、API 与 `/_apps/*` 走同一 HTTP 地址。真实 SDK 夹具在宿主机运行，容器通过 host.docker.internal 连接；检查保留浏览器沙箱与 iframe/CSP 限制。初始化、结果、App 工具调用、主题、全屏与退出、状态保持、卸载及异常检查全部通过；代理与工具 iframe 实际拒绝父窗口 DOM、Cookie 和 localStorage 访问。截图继续保存于下述忽略目录。这次未重跑下方历史记录中的官方示例和任务页专项，也未验收公网 HTTPS。
+
 ## 已验证
 
 - 工具测试页：AppBridge 初始化、原始参数/结果、App 专用工具调用、主题变化、尺寸通知、内联/全屏、取消通知、卸载回调和 iframe 移除；没有广告 message 模型会话能力。
@@ -16,7 +20,7 @@
 
 ## 重复运行本地宿主回归
 
-先配置并启动本地平台与 Web（4300/4301/4302），在这个开发环境启用注册。脚本会创建专用测试账号、连接与调用记录，结束时停止测试连接，不删除已有账号或连接。
+先配置并启动本地平台与 Web（开发模式 4300/4301，生产模式统一 4300），在这个开发环境启用注册。脚本会创建专用测试账号、连接与调用记录，结束时停止测试连接，不删除已有账号或连接。
 
 ```sh
 pnpm --filter web exec vite build --config test-fixtures/vite.config.ts
@@ -32,6 +36,10 @@ PLAYWRIGHT_MODULE="$apps_qa_dir/node_modules/playwright/index.mjs" \
   node scripts/check.mjs 180 node scripts/verify-apps-browser.mjs
 ```
 
+生产容器也使用同一检查脚本；设置 `PLATFORM_BROWSER_ORIGIN=http://localhost:4300`。如果 MCP 夹具在 Docker 宿主机运行，在 macOS/Windows 的 Docker Desktop 上设置 `MCP_APPS_FIXTURE_URL=http://host.docker.internal:54820/mcp`，让容器中的后端能访问实际夹具。Linux 需使用容器可达的实际宿主地址。
+
+当前脚本还验证代理与工具 iframe 的浏览器 origin 均为 `null`，实际拒绝父窗口 DOM、Cookie、localStorage；代理使用 `data:` 文档，所有 HTTP 资源走应用的 `/_apps/*`，无需额外域名或端口。
+
 需要本机已安装 Google Chrome。浏览器使用新建的隔离资料目录，保留 Chromium sandbox。脚本检查页面异常与失败响应；浏览器自动请求、但本项目没有提供的 favicon 404 不参与业务成功断言。成功/失败截图分别保存到忽略的 `.data/browser-acceptance/success.png`、`failure.png`。官方示例与任务页专项截图也只保留在本机该目录，没有放入发布包。
 
-公网 Apps 域名/HTTPS、实际模型任务的完整取消链及外部客户端展示仍需要部署或账号环境；本地通过不替代这些验收。
+公网 HTTPS、实际模型任务的完整取消链及外部客户端展示仍需要部署或账号环境；本地通过不替代这些验收。

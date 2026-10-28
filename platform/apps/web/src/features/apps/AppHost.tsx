@@ -164,13 +164,15 @@ export function AppHost({
         return {};
       };
     }
+    const proxyLoad = new AbortController();
     let connected = false;
     const ready = () => {
       if (!iframe.contentWindow || connected) return;
       connected = true;
       const transport = new PostMessageTransport(iframe.contentWindow, iframe.contentWindow);
-      const origin = new URL(data.sandboxOrigin).origin;
-      // The official transport verifies the window; this wrapper also pins the proxy origin.
+      // data: gives the trusted proxy its own opaque origin on the same public endpoint.
+      const origin = 'null';
+      // Pin both the proxy window and its opaque origin; other null-origin frames are rejected.
       const start = transport.start.bind(transport);
       const close = transport.close.bind(transport);
       const filter = (event: MessageEvent) => {
@@ -192,14 +194,30 @@ export function AppHost({
         await close();
       };
       transport.send = async (message) => {
-        iframe.contentWindow?.postMessage(message, origin);
+        iframe.contentWindow?.postMessage(message, '*');
       };
       void instance.connect(transport).catch(failure);
-      iframe.contentWindow.postMessage({ jsonrpc: '2.0', method: 'platform/proxy-check' }, origin);
+      iframe.contentWindow.postMessage({ jsonrpc: '2.0', method: 'platform/proxy-check' }, '*');
     };
-    iframe.addEventListener('load', ready);
-    iframe.src = `${data.sandboxOrigin}/sandbox?parent=${encodeURIComponent(window.location.origin)}`;
+    void fetch(
+      `${data.sandboxOrigin}/_apps/sandbox?parent=${encodeURIComponent(window.location.origin)}`,
+      {
+        credentials: 'omit',
+        signal: proxyLoad.signal,
+      },
+    )
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`App proxy load failed: ${response.status}`);
+        const html = await response.text();
+        if (proxyLoad.signal.aborted) return;
+        iframe.addEventListener('load', ready);
+        iframe.src = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+      })
+      .catch((error: unknown) => {
+        if (!proxyLoad.signal.aborted) failure(error);
+      });
     return () => {
+      proxyLoad.abort();
       iframe.removeEventListener('load', ready);
       theme.disconnect();
       bridge.current = null;

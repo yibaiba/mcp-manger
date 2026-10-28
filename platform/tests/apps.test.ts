@@ -117,7 +117,7 @@ test('platform App calls use current grants and end on refresh without replaying
   h.services.apps.close(account.ownerId, id);
   await expect(h.services.apps.view(account.ownerId, id)).rejects.toThrow(/已结束/);
 });
-test('sandbox serves separate one-use documents and enforces configured public origin and declared CSP', async () => {
+test('sandbox uses one-use documents and accepts only the opaque proxy origin', async () => {
   const app = sandboxApp(['https://platform.example'], 'https://apps.platform.example');
   const denied = await app.request('/frames', {
     method: 'POST',
@@ -127,7 +127,7 @@ test('sandbox serves separate one-use documents and enforces configured public o
   expect(denied.status).toBe(403);
   const response = await app.request('/frames', {
     method: 'POST',
-    headers: { Origin: 'https://apps.platform.example', 'Content-Type': 'application/json' },
+    headers: { Origin: 'null', 'Content-Type': 'application/json' },
     body: JSON.stringify({
       html: '<p>actual</p>',
       csp: { connectDomains: ['https://api.example'] },

@@ -1,11 +1,11 @@
 # 部署、备份与恢复
 
-## Docker Compose + HTTPS
+## 单镜像、单端口部署
 
 默认单实例，没有 Redis、消息队列或多副本路由。MCP 会话和在线设备请求由服务进程维护；重启会中断请求并记录结果未知，不自动重放。
 
-1. 云主机安装 Docker/Compose，DNS 指向主机，开放 80/443（Caddy 自动申请证书）。
-2. `cp .env.example .env`；设置 `DOMAIN`、`PUBLIC_URL=https://你的域名`、`WEB_ORIGIN=https://你的域名`、随机 `POSTGRES_PASSWORD`（建议 32 字节 hex）、`BETTER_AUTH_SECRET`、32 字节规范 Base64 `ENCRYPTION_KEY` 和另行独立生成的 `DEVICE_AUTH_ENCRYPTION_KEY`。数据库连接由 Compose 注入。将示例的本地 `APPS_ORIGIN` 改为 `https://apps.你的域名`，并设置 `APPS_DOMAIN=apps.你的域名`，为其配置 DNS；不要把开发默认 localhost 地址留在生产配置中。不要在仓库提交 `.env`。
+1. 安装 Docker / Compose，复制 `cp .env.example .env`。设置随机 `POSTGRES_PASSWORD`、`BETTER_AUTH_SECRET`、规范 Base64 的 `ENCRYPTION_KEY` 和独立的 `DEVICE_AUTH_ENCRYPTION_KEY`；加密密钥各为 32 字节，不在仓库提交 `.env`。
+2. 将 `PUBLIC_URL` 和 `WEB_ORIGIN` 都设为浏览器实际访问的地址。有 Nginx 时填同一个 HTTPS 域名；直接访问时均填 `http://服务器IP:4300`。无需配置 Apps 子域名、第二个端口、APPS_ORIGIN 或 APPS_PORT。
 3. 首次临时启用 `ALLOW_REGISTRATION=true`，注册后关闭并重建 server 容器。
 
 ```sh
@@ -16,24 +16,25 @@ docker compose up -d
 docker compose logs --tail=100 server
 ```
 
-`/health` 会检查数据库。PostgreSQL 不发布公网端口；Caddy 转发 `/api/*`、`/mcp/*`、`/.well-known/*` 和 WebSocket。数据库、产物、Pi 会话和证书分别存放在持久卷。设备连接器在实际设备运行，不在服务器容器中启动桌面软件。
+统一应用容器的 **4300** 端口提供网页、API、MCP、WebSocket 和 `/_apps/*` 沙箱资源。Compose 仅包含应用和 PostgreSQL，数据库不发布公网端口；用户数据在持久卷。`/health` 检查数据库。连接器在实际设备运行，不在服务器容器中启动桌面软件。
 
-Apps 使用单独源站，Caddy 将 APPS_DOMAIN 代理至 server:4302，仅暴露 Sandbox Proxy 和一次性 iframe 文档，不暴露管理 API。APPS_ORIGIN 必须与 PUBLIC_URL/WEB_ORIGIN 不同源；自定义域名时同步修改三项配置与 DNS。开发 `pnpm dev` 自动启动 4302，不需要单独启动命令。实际公网域名、证书、iframe/CSP 仍需部署验收。
+已有 Nginx 时，只需把同一个站点的所有路径转发至 4300，保留 Host 和 WebSocket Upgrade，关闭 SSE 响应缓冲；HTTPS 证书由自己的 Nginx 管理。不使用 Nginx 时可直接使用 HTTP 地址，本镜像不附带网关或自动申请证书。Nginx 配置参考 [WebSocket 代理](https://nginx.org/en/docs/http/websocket.html) 与 [proxy_buffering](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering)。
 
-镜像把 Corepack 缓存放在 `/usr/local/share/corepack`，运行用户 node 可以直接使用构建时安装的 pnpm，无需启动时再次联网下载。修改镜像后，可在本机运行 `node scripts/check.mjs 600 node scripts/verify-compose.mjs`：需要先构建出默认的 mcp-platform-server/web 镜像，并空出 54330/54332。验收使用独立项目名、随机临时凭证、新建卷和仅回环地址的 HTTPS 端口（显式信任本次 Caddy 内部 CA）及隔离源 HTTP 端口，检查非 root 用户禁网执行 pnpm、新库及重复迁移、Caddy 静态页、健康/登录 API、隔离源 HTTP 契约、真实无模型 Pi 桥接，以及真实 Go 连接器的 HMAC WSS 握手、Caddy 重启后的自动重连、重配和撤销；结束时只清理本次项目和卷。该检查需要支持 `!override` 的 Compose，不验证公网证书签发。
+Apps 的公开资源仍走同一域名、同一端口，浏览器中通过 `data:` 代理 iframe 获得独立的 opaque origin；工具 HTML 在内层受 `sandbox` 属性和响应 CSP 限制的 iframe 中运行。代理只接受指定父窗口的消息，宿主检查消息来源窗口及 opaque origin；不会给管理 API 开放 null-origin CORS。专用的 frame 创建端点只允许不携带凭证的 opaque 代理请求，生成一次性文档地址，继续按声明的 CSP 约束工具网络访问。
 
-构建使用 BuildKit：先按锁文件、workspace 配置与补丁执行 `pnpm fetch`，再复制源码并离线安装。下载目录使用独立缓存挂载；源码或文档变化不会使下载层失效，中断后的重试也能复用已下载的包。Git 与 CA 系统包位于独立基础层，不随应用源码重新安装。首次下载仍需网络，缺包或下载失败会直接终止构建。实现参考 [pnpm Docker 构建](https://pnpm.io/docker) 与 [Docker 缓存分层](https://docs.docker.com/build/cache/optimize/)。
+生产模式（`NODE_ENV=production`）由后端提供 `apps/web/dist`，缺少网页构建则启动报错。开发环境仍可使用 Vite 的 4301；Apps 资源经后端 4300 提供，不再另开监听端口。旧配置中的 APPS_ORIGIN、APPS_PORT、DOMAIN、APPS_DOMAIN 可删除。
+
+本机完整容器验收为 `node scripts/check.mjs 600 node scripts/verify-compose.mjs`，需先运行 `docker build -t mcp-platform:latest .`，并空出回环端口 54330。脚本使用随机临时凭证、独立 Compose 项目与卷，验证全新 / 重复迁移、网页与资源、登录/API、Apps 一次性文档和 CSP、真实 Go WebSocket 连接 / 服务重启重连 / 重配 / 撤销，以及真实无模型 Pi 桥接；结束后清理本次资源。该检查不包含用户自己的 Nginx、公网 HTTPS 或浏览器交互，浏览器验收见 [Apps 浏览器验证](apps-browser.md)。
+
+镜像把 Corepack 缓存放在 `/usr/local/share/corepack`，运行用户 node 可禁网执行打包时安装的 pnpm。构建使用 BuildKit，按锁文件和补丁先 `pnpm fetch`，再复制源码离线安装；缺包或网络失败会终止构建。实现参考 [pnpm Docker 构建](https://pnpm.io/docker) 和 [Docker 缓存分层](https://docs.docker.com/build/cache/optimize/)。
 
 ## Release 镜像
 
-主程序已有 `Dockerfile` 的 `server` / `web` 两个 target。发布 GitHub Release 后，`.github/workflows/connector-installers.yml` 使用 Ubuntu amd64 + Buildx / QEMU 构建并发布两种架构（linux/amd64、linux/arm64），平台构建上下文为 `platform/`，与外层 MCPHub 镜像分开：
+前后端使用同一个 `ghcr.io/yibaiba/mcp-manger-platform:<版本>` 镜像，Dockerfile 最终 target 为 `app`，不再分别构建 server / web 镜像。Release 工作流在 Ubuntu amd64 + Buildx / QEMU 上构建 linux/amd64、linux/arm64 两种架构，执行类型检查、网页服务单测（60 秒硬超时）和生产构建。
 
-- `ghcr.io/yibaiba/mcp-manger-platform-server:<版本>`
-- `ghcr.io/yibaiba/mcp-manger-platform-web:<版本>`
+发布标签 `v0.3.0` 对应镜像标签 `0.3.0`；正式 Release 同时更新 `latest`，预发布不更新 `latest`。普通 push 不触发打包；手动入口只验证构建，不推镜像或上传 Release 附件。发布使用 GitHub Token 登录 GHCR，无需 Docker Hub 凭证。首次发布后检查 GHCR 包的访问权限；私有镜像的部署机器需要先登录 GHCR。
 
-发布标签 `v0.3.0` 对应镜像标签 `0.3.0`；正式 Release 同时更新 `latest`，预发布不更新 `latest`。普通 push 不触发发布。Actions 手动执行只做构建验证，不推镜像或上传 Release 附件。镜像构建内执行类型检查与生产构建；使用 GitHub Token 登录 GHCR，无需配置 Docker Hub 凭证。首次发布后检查 GHCR 包的访问权限；私有镜像的部署机器需要先登录 GHCR。
-
-按前文准备 `.env`，加入 `PLATFORM_VERSION=0.3.0`，使用镜像覆盖文件部署；该覆盖会移除本地 build 配置。迁移仍是显式步骤，不在发布流水线中访问生产数据库：
+准备 `.env` 并加入 `PLATFORM_VERSION=0.3.0`，用镜像覆盖文件部署；迁移是显式步骤，流水线不访问生产数据库：
 
 ```sh
 docker compose -f compose.yaml -f compose.images.yaml pull
@@ -42,7 +43,7 @@ docker compose -f compose.yaml -f compose.images.yaml run --rm server pnpm db:mi
 docker compose -f compose.yaml -f compose.images.yaml up -d
 ```
 
-派生仓库可用 `PLATFORM_IMAGE_PREFIX=ghcr.io/<owner>/<repo>-platform` 调整镜像前缀。Release 必须指向包含该工作流的提交，通过 GitHub 发布界面或 `gh release create` 发布；仅推送 tag 不触发本平台发布。GitHub 文档说明 [Release 触发条件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release) 和 [向 GHCR 发布镜像](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)；多架构构建使用 [Docker 官方 Buildx / QEMU 流程](https://docs.docker.com/build/ci/github-actions/multi-platform/)。
+派生仓库可通过 `PLATFORM_IMAGE_PREFIX=ghcr.io/<owner>/<repo>-platform` 调整镜像名。Release 必须指向包含工作流的提交，通过 GitHub 界面或 `gh release create` 发布；仅推 tag 不触发平台发布。参考 [Release 触发条件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)、[发布 GHCR 镜像](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images) 和 [多架构构建](https://docs.docker.com/build/ci/github-actions/multi-platform/)。
 
 ## 升级与回退
 

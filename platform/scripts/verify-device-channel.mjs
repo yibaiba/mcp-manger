@@ -9,11 +9,14 @@ export async function verifyDeviceChannel({
   directory,
   origin,
   request,
-  restartProxy,
+  restartTransport,
 }) {
   const configPath = resolve(directory, 'connector.json');
   const localDataDir = resolve(directory, 'local');
-  const trustPath = resolve(directory, 'caddy-root.crt');
+  const tlsArgs =
+    new URL(origin).protocol === 'https:'
+      ? ['--ca-cert', resolve(directory, 'proxy-root.crt')]
+      : [];
   await writeFile(
     configPath,
     JSON.stringify({ server: origin, ...device, localDataDir, custom: 'preserved' }),
@@ -23,7 +26,7 @@ export async function verifyDeviceChannel({
   let child;
   let output = '';
   async function start() {
-    child = spawn(binary, ['run', '--config', configPath, '--ca-cert', trustPath], {
+    child = spawn(binary, ['run', '--config', configPath, ...tlsArgs], {
       env: {
         ...process.env,
         HOME: directory,
@@ -54,18 +57,18 @@ export async function verifyDeviceChannel({
       if (predicate(row)) return row;
       await setTimeout(100);
     }
-    throw new Error(`Go/Caddy ${label} timed out: ${output}`);
+    throw new Error(`Go connector ${label} timed out: ${output}`);
   }
   try {
     await start();
     const initial = await status(
       (row) => row.online && row.version === '0.3.0',
-      'HMAC WSS handshake',
+      'HMAC WebSocket handshake',
     );
-    await restartProxy();
+    await restartTransport();
     await status(
       (row) => row.online && row.lastSeen > initial.lastSeen,
-      'automatic reconnect after Caddy restart',
+      'automatic reconnect after transport restart',
     );
     await stop();
     await status((row) => !row.online, 'disconnect');
@@ -82,7 +85,7 @@ export async function verifyDeviceChannel({
     await setTimeout(3500);
     await status((row) => !row.online && row.pairingRequired, 'old credential rejection');
     await stop();
-    const repair = spawn(binary, ['re-pair', '--config', configPath, '--ca-cert', trustPath], {
+    const repair = spawn(binary, ['re-pair', '--config', configPath, ...tlsArgs], {
       env: process.env,
       stdio: ['pipe', 'ignore', 'pipe'],
     });
@@ -117,7 +120,7 @@ export async function verifyDeviceChannel({
     await status((row) => row.revoked && !row.online, 'revoked reconnect rejection');
     assert.ok(!output.includes(device.deviceSecret) && !output.includes(updated.deviceSecret));
     console.log(
-      'PASS: real Go connector through trusted Caddy HTTPS/WSS: HMAC, reconnect, re-pair, preserved config, revocation and secret-free logs',
+      'PASS: real Go connector over the configured HTTP(S)/WebSocket transport: HMAC, reconnect, re-pair, preserved config, revocation and secret-free logs',
     );
   } finally {
     await stop();

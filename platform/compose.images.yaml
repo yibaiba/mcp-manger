@@ -1,8 +1,5 @@
-# Combine with compose.yaml to deploy release images without a local build.
+# Combine with compose.yaml to deploy the all-in-one application image.
 services:
   server:
     build: !reset null
-    image: ${PLATFORM_IMAGE_PREFIX:-ghcr.io/yibaiba/mcp-manger-platform}-server:${PLATFORM_VERSION:?Set PLATFORM_VERSION to a release version}
-  web:
-    build: !reset null
-    image: ${PLATFORM_IMAGE_PREFIX:-ghcr.io/yibaiba/mcp-manger-platform}-web:${PLATFORM_VERSION:?Set PLATFORM_VERSION to a release version}
+    image: ${PLATFORM_IMAGE_PREFIX:-ghcr.io/yibaiba/mcp-manger-platform}:${PLATFORM_VERSION:?Set PLATFORM_VERSION to a release version}
