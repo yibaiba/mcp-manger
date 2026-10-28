@@ -10,28 +10,30 @@ import { api, json, type Device } from '../../lib/api.js';
 export function ConnectionForm({
   devices,
   onSaved,
+  save,
 }: {
   devices: Device[];
   onSaved: (result: unknown) => void;
+  save?: (config: Record<string, unknown>) => Promise<unknown>;
 }) {
   const [adapter, setAdapter] = useState('direct');
   const [transport, setTransport] = useState('http');
   async function submit(data: FormData) {
     const extra = JSON.parse(value(data, 'advanced') || '{}') as Record<string, unknown>;
-    const created = await api('/connections', {
-      method: 'POST',
-      body: json({
-        ...extra,
-        name: value(data, 'name'),
-        adapter,
-        transport,
-        mode: transport === 'stdio' ? 'managed' : value(data, 'mode'),
-        deviceId: adapter === 'device' ? value(data, 'deviceId') : undefined,
-        url: transport !== 'stdio' ? value(data, 'url') : undefined,
-        command: value(data, 'command') || undefined,
-        args: JSON.parse(value(data, 'args') || '[]'),
-      }),
-    });
+    const config = {
+      ...extra,
+      name: value(data, 'name'),
+      adapter,
+      transport,
+      mode: transport === 'stdio' ? 'managed' : value(data, 'mode'),
+      deviceId: adapter === 'device' ? value(data, 'deviceId') : undefined,
+      url: transport !== 'stdio' ? value(data, 'url') : undefined,
+      command: value(data, 'command') || undefined,
+      args: JSON.parse(value(data, 'args') || '[]'),
+    };
+    const created = save
+      ? await save(config)
+      : await api('/connections', { method: 'POST', body: json(config) });
     onSaved(created);
   }
   return (

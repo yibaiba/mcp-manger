@@ -64,6 +64,27 @@
       "when": 1793103438764,
       "tag": "0008_volatile_lord_hawal",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793164567808,
+      "tag": "0009_lowly_magus",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793165222059,
+      "tag": "0010_curly_molten_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793168117623,
+      "tag": "0011_military_lethal_legion",
+      "breakpoints": true
     }
   ]
 }

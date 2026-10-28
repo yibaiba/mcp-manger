@@ -24,6 +24,16 @@ import { interactionRoutes } from './modules/interactions/routes.js';
 import { openApiRoutes } from './modules/openapi/routes.js';
 import type { Services } from './services.js';
 import { sandboxApp } from './modules/apps/sandbox.js';
+import { providerList } from '@platform/auth/providers';
+import { activeUser } from './modules/users/userAccess.js';
+import { UserService } from './modules/users/userService.js';
+import { userRoutes } from './modules/users/routes.js';
+import { disableUserRuntime } from './modules/users/userRuntime.js';
+import { activityRoutes } from './modules/activity/routes.js';
+import { logRoutes } from './modules/activity/logRoutes.js';
+import { metricsRoutes } from './modules/activity/metrics.js';
+import { requestLogging } from './modules/activity/requestLogging.js';
+import { shareRoutes } from './modules/shares/routes.js';
 
 export function createApp(deps: { db: Database; auth: Auth; config: Config; services: Services }) {
   const { db, auth, config, services: s } = deps;
@@ -37,6 +47,9 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     ),
   );
   app.all('/_apps/*', (c) => c.notFound());
+  app.use('/api/v1/*', requestLogging(s.logger));
+  app.use('/mcp/*', requestLogging(s.logger));
+  app.route('/', metricsRoutes({ db, config, online: (id) => s.broker.online(id) }));
   app.use(
     '*',
     cors({
@@ -65,14 +78,26 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
       );
     if (error instanceof AppError)
       return c.json({ code: error.code, error: error.message }, error.status as 400);
-    console.error('Request failed', error.name, error.message);
+    s.logger.report('HTTP_UNHANDLED_ERROR', c.get('ownerId'));
     return c.json({ code: 'INTERNAL_ERROR', error: '服务执行失败；请查看服务日志' }, 500);
   });
   app.get('/health', async (c) => {
     await db.execute(sql`select 1`);
     return c.json({ status: 'ok', piEnabled: config.PI_ENABLED === 'true' });
   });
-  app.on(['GET', 'POST'], '/api/v1/auth/*', (c) => auth.handler(c.req.raw));
+  app.get('/api/v1/login-options', (c) =>
+    c.json({
+      registration: config.ALLOW_REGISTRATION === 'true',
+      providers: providerList(config.AUTH_PROVIDERS),
+    }),
+  );
+  app.on(['GET', 'POST'], '/api/v1/auth/*', async (c) => {
+    if (!c.req.path.endsWith('/sign-out')) {
+      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      if (session) await activeUser(db, session.user.id);
+    }
+    return auth.handler(c.req.raw);
+  });
   app.post('/api/v1/devices/pair', async (c) => {
     const input = z
       .object({ code: z.string().min(1), deviceId: z.uuid().optional() })
@@ -121,6 +146,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
   app.use('/api/v1/*', async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) throw new AppError('UNAUTHORIZED', '请先登录管理平台', 401);
+    const user = await activeUser(db, session.user.id);
     if (
       !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) &&
       c.req.header('origin') !== config.WEB_ORIGIN &&
@@ -128,16 +154,30 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     )
       throw new AppError('ORIGIN', '管理操作需要匹配的 Origin', 403);
     c.set('ownerId', session.user.id);
+    c.set('role', user.role);
     await next();
   });
   app.get('/api/v1/me', (c) =>
     c.json({
       userId: owner(c),
+      role: c.get('role'),
       piEnabled: config.PI_ENABLED === 'true',
       platformOrigin: new URL(config.PUBLIC_URL).origin,
     }),
   );
+  app.route(
+    '/api/v1',
+    userRoutes(
+      new UserService({
+        db,
+        hashPassword: async (password) => (await auth.$context).password.hash(password),
+        disabled: (ownerId) => disableUserRuntime({ db, services: s, ownerId }),
+      }),
+    ),
+  );
   app.route('/api/v1/devices', deviceRoutes(s.devices));
+  app.route('/api/v1/activity/calls', activityRoutes(s.activity));
+  app.route('/api/v1/admin/logs', logRoutes({ db, logs: s.logs, logger: s.logger }));
   app.route('/api/v1/devices', localRoutes(s.local));
   app.route(
     '/api/v1/connections',
@@ -165,6 +205,7 @@ export function createApp(deps: { db: Database; auth: Auth; config: Config; serv
     ),
   );
   app.route('/api/v1/tools', toolRoutes(s.profiles, s.invocations));
+  app.route('/api/v1', shareRoutes(s.shares));
   app.route('/api/v1/catalog', contentRoutes(s.content));
   app.route('/api/v1/profiles', profileRoutes({ ...s, publicUrl: config.PUBLIC_URL }));
   app.route('/api/v1/skills', skillRoutes(s.skills, importGit));

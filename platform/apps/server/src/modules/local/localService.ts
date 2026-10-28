@@ -1,3 +1,4 @@
+import type { DiagnosticLogger } from '../activity/systemLogger.js';
 import { and, eq } from 'drizzle-orm';
 import { devices, localSources, type Database } from '@platform/db';
 import {
@@ -27,6 +28,7 @@ export class LocalService {
   constructor(
     private readonly deps: {
       db: Database;
+      logger: DiagnosticLogger;
       broker: DeviceBroker;
       devices: DeviceService;
       connections: ConnectionService;
@@ -44,9 +46,7 @@ export class LocalService {
     });
     this.recovery = new LocalRecovery({ repository: this.repository, bindings: this.bindings });
     this.unwatch = deps.broker.watchLocal((id) => {
-      void this.automatic(id).catch((error: unknown) =>
-        console.error('Local synchronization failed', id, errorMessage(error)),
-      );
+      void this.automatic(id).catch(() => this.deps.logger.report('LOCAL_SYNC_FAILED'));
     });
   }
   async close() {
@@ -152,7 +152,7 @@ export class LocalService {
       }
     }).catch(async (error: unknown) => {
       await this.repository.finish(op.id, { phase: 'failed', error: errorMessage(error) });
-      console.error('Local synchronization operation failed', op.id, errorMessage(error));
+      this.deps.logger.report('LOCAL_SYNC_OPERATION_FAILED');
     });
     return op;
   }

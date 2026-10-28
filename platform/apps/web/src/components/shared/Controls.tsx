@@ -96,10 +96,11 @@ export function Action({
     setError(null);
     try {
       await action();
-      await query.invalidateQueries();
     } catch (error) {
       setError(error instanceof Error ? error : new Error(String(error)));
     } finally {
+      // Failed connection attempts also persist a new diagnostic status.
+      await query.invalidateQueries();
       setBusy(false);
     }
   }
