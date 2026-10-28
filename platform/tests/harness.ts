@@ -16,6 +16,7 @@ dotenv({ path: '.env', quiet: true });
 export async function harness(
   options: {
     webOrigin?: string;
+    registration?: boolean;
     providers?: import('../packages/auth/src/providers.js').ProviderConfig;
   } = {},
 ) {
@@ -29,7 +30,7 @@ export async function harness(
     PI_ENABLED: 'false',
     PI_MODEL_PROVIDER: undefined,
     PI_MODEL_ID: undefined,
-    ALLOW_REGISTRATION: 'true',
+    ALLOW_REGISTRATION: options.registration === false ? 'false' : 'true',
     BETTER_AUTH_SECRET: randomBytes(32).toString('hex'),
     ENCRYPTION_KEY: randomBytes(32).toString('base64'),
     DEVICE_AUTH_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
@@ -49,7 +50,7 @@ export async function harness(
     baseURL,
     webOrigin: config.WEB_ORIGIN,
     secret: config.BETTER_AUTH_SECRET,
-    registration: true,
+    registration: options.registration ?? true,
     providers: config.AUTH_PROVIDERS,
   });
   const services = createServices(db, config);

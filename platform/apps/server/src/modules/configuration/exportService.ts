@@ -2,6 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import {
   connections,
   connectionShares,
+  configManifests,
   profiles,
   tools,
   mcpEntries,
@@ -19,10 +20,20 @@ import {
 import type { Vault } from '../../shared/crypto.js';
 import { AppError } from '../../shared/errors.js';
 import { fingerprint } from './values.js';
+import { DeploymentPending } from './values.js';
+import { assertDeploymentReady } from './readiness.js';
 
 export class ConfigExportService {
   constructor(private readonly deps: { db: Database; vault: Vault }) {}
   async export(ownerId: string, name: string): Promise<ConfigManifest> {
+    const manifests = await this.deps.db
+      .select({ status: configManifests.status })
+      .from(configManifests)
+      .where(eq(configManifests.ownerId, ownerId));
+    if (manifests.some((manifest) => manifest.status !== 'ready'))
+      throw new DeploymentPending(
+        '存在尚未就绪的配置模板，不能导出旧配置；请从模板状态读取已保存的完整 declaration',
+      );
     const own = await this.deps.db
       .select()
       .from(connections)
@@ -59,6 +70,7 @@ export class ConfigExportService {
       ? await this.deps.db.select().from(mcpEntries).where(inArray(mcpEntries.connectionId, ids))
       : [];
     const rows = await this.deps.db.select().from(profiles).where(eq(profiles.ownerId, ownerId));
+    for (const row of rows) assertDeploymentReady(row);
     this.unique(
       rows.map((row) => row.name),
       'Profile',

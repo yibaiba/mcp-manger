@@ -32,6 +32,14 @@ export function createAuth(options: {
       encryptOAuthTokens: true,
     },
     databaseHooks: {
+      user: {
+        create: {
+          before: async () => {
+            if (!options.registration)
+              throw new APIError('FORBIDDEN', { message: '账号注册已关闭' });
+          },
+        },
+      },
       session: {
         create: {
           before: async (session) => {
@@ -44,8 +52,12 @@ export function createAuth(options: {
       },
     },
     socialProviders: {
-      ...(options.providers?.google ? { google: options.providers.google } : {}),
-      ...(options.providers?.github ? { github: options.providers.github } : {}),
+      ...(options.providers?.google
+        ? { google: { ...options.providers.google, disableSignUp: !options.registration } }
+        : {}),
+      ...(options.providers?.github
+        ? { github: { ...options.providers.github, disableSignUp: !options.registration } }
+        : {}),
     },
     plugins: [
       genericOAuth({
@@ -53,6 +65,7 @@ export function createAuth(options: {
           ? [
               {
                 ...options.providers.oidc,
+                disableSignUp: !options.registration,
                 providerId: 'oidc',
                 scopes: ['openid', 'profile', 'email'],
                 pkce: true,

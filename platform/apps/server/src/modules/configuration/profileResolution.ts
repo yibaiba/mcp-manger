@@ -4,6 +4,7 @@ import type { ConnectionService } from '../mcp/connectionService.js';
 import { toolId } from '../mcp/catalogRepository.js';
 import { catalogEntries } from '../mcp/catalogEntries.js';
 import { DeploymentPending, external } from './values.js';
+import { mergeTextOptions, mergeToolOptions } from './catalogOverrides.js';
 
 export async function resolveProfile(input: {
   ownerId: string;
@@ -57,11 +58,11 @@ export async function resolveProfile(input: {
       if (!source.snapshot.tools.some((tool) => tool.name === ref.name))
         throw new DeploymentPending(`尚未发现工具：${ref.connection}/${ref.name}`);
       const id = toolId(source.id, ref.name);
-      catalog.tools[id] = {
+      catalog.tools[id] = mergeToolOptions(catalog.tools[id], {
         alias: ref.alias,
         description: ref.description,
         hiddenParameters: ref.hiddenParameters,
-      };
+      });
       return id;
     });
   const content = (refs: ManifestProfile['content']) =>
@@ -71,7 +72,9 @@ export async function resolveProfile(input: {
         .content.find((entry) => entry.kind === ref.kind && entry.locator === ref.locator);
       if (!row)
         throw new DeploymentPending(`尚未发现 ${ref.kind}：${ref.connection}/${ref.locator}`);
-      catalog.content[row.id] = { description: ref.description };
+      catalog.content[row.id] = mergeTextOptions(catalog.content[row.id], {
+        description: ref.description,
+      });
       return row.id;
     });
   for (const [name, alias] of Object.entries(value.connectionAliases))

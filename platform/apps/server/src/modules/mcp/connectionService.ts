@@ -160,7 +160,7 @@ export class ConnectionService {
     });
   }
   async validate(ownerId: string, input: unknown) {
-    const config = connectionInput.parse(input);
+    let config = connectionInput.parse(input);
     if (config.deviceResourceId)
       await this.deps.devices.assertLocalReference(ownerId, {
         deviceId: config.deviceId!,
@@ -169,8 +169,8 @@ export class ConnectionService {
     if (config.source === 'openapi' && config.openapi) {
       if (config.health.enabled)
         throw new AppError('CHECK_UNSUPPORTED', 'OpenAPI 来源不提供 MCP 健康检查，请关闭该选项');
-      await validateOpenApiDocument(config.openapi.document);
-      const published = compileDocument(config.openapi.document as ApiDocument).filter((op) =>
+      const document = await validateOpenApiDocument(config.openapi.document);
+      const published = compileDocument(document as ApiDocument).filter((op) =>
         config.openapi!.operations.includes(op.key),
       );
       if (
@@ -184,6 +184,12 @@ export class ConnectionService {
             .map((op) => `${op.key}: ${op.unsupported.join('; ')}`)
             .join('\n') || '发布的操作不存在',
         );
+      // The adapter compiles standalone tool schemas, so retain the validated,
+      // dereferenced document instead of the original document-scoped references.
+      config = {
+        ...config,
+        openapi: { ...config.openapi, document: document as unknown as Record<string, unknown> },
+      };
     }
     if (config.deviceId) await this.deps.devices.owned(ownerId, config.deviceId);
     if (
