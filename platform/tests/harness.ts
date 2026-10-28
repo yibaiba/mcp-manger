@@ -13,7 +13,12 @@ import { createApp } from '../apps/server/src/app.js';
 import { createServices } from '../apps/server/src/services.js';
 import { attachDeviceSocket } from '../apps/server/src/deviceSocket.js';
 dotenv({ path: '.env', quiet: true });
-export async function harness(options: { webOrigin?: string } = {}) {
+export async function harness(
+  options: {
+    webOrigin?: string;
+    providers?: import('../packages/auth/src/providers.js').ProviderConfig;
+  } = {},
+) {
   if (!process.env.DATABASE_URL)
     throw new Error('Tests require a migrated PostgreSQL DATABASE_URL');
   const directory = await mkdtemp(join(tmpdir(), 'platform-test-'));
@@ -31,6 +36,7 @@ export async function harness(options: { webOrigin?: string } = {}) {
     PI_MCP_ADAPTER_OAUTH_FILE_KEY: randomBytes(32).toString('base64'),
     PUBLIC_URL: 'http://localhost:4300',
     WEB_ORIGIN: options.webOrigin ?? 'http://localhost:4301',
+    AUTH_PROVIDERS: options.providers ? JSON.stringify(options.providers) : undefined,
   });
   const server = serve({ fetch: (request, env) => app.fetch(request, env), port: 0 });
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -44,6 +50,7 @@ export async function harness(options: { webOrigin?: string } = {}) {
     webOrigin: config.WEB_ORIGIN,
     secret: config.BETTER_AUTH_SECRET,
     registration: true,
+    providers: config.AUTH_PROVIDERS,
   });
   const services = createServices(db, config);
   const app = createApp({ db, auth, config, services });
@@ -95,10 +102,17 @@ export async function harness(options: { webOrigin?: string } = {}) {
       await services.local.close();
       sockets.close();
       await services.gateway.close();
-      await services.connections.shutdown();
+      try {
+        await services.connections.shutdown();
+      } catch (error) {
+        if (error instanceof AggregateError)
+          for (const cause of error.errors) console.error('Connection cleanup failed', cause);
+        throw error;
+      }
       await services.pi.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       for (const id of owners) await db.delete(user).where(eq(user.id, id));
+      await services.logger.drain();
       await pool.end();
       await rm(directory, { recursive: true, force: true });
     },

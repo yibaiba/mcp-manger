@@ -30,3 +30,7 @@
 - linux/arm64 完整应用构建在拉取 Docker Hub 的 `node:24-bookworm-slim` manifest 时 TLS 握手超时失败，未完成构建或运行。日志：`.data/capabilities-arm64-build.log`。需在可访问该 registry 的环境或原定 Linux amd64 发布 runner 中完成验证；未替换镜像源或将失败标为通过。
 - 两账号共享、真实 SSO 供应商、Embedding、目标设备实机、模板全新环境和 REST 重启持久化：对应实现尚未完成，不以夹具替代。
 - 四阶段提交与合并。
+
+## 第二阶段独立验收
+
+用户角色和启停、SSO、共享连接、调用分页/统计/清理、持久日志与指标已实现。第二阶段独立工作区类型检查、lint、169 项唯一用例及全新 Compose 验收通过，供应商 SSO 和目标设备未提供，未标记实机联调完成。详见 [用户与日志](users-and-observability.md)。

@@ -18,9 +18,12 @@ import { Action, Code, Empty, Feedback, Status } from '../../components/shared/C
 import { ConnectionForm } from './ConnectionForm.js';
 import { ImportPanel } from './ImportPanel.js';
 import { AuthorizationBindings } from './AuthorizationBindings.js';
+import { ConnectionShares } from './ConnectionShares.js';
+import { IncomingShares } from './IncomingShares.js';
 
 export default function ConnectionsPage() {
   const [editing, setEditing] = useState<Connection>();
+  const [sharing, setSharing] = useState<Connection>();
   const [show, setShow] = useState(false);
   const [result, setResult] = useState<unknown>();
   const connections = useQuery({
@@ -106,6 +109,9 @@ export default function ConnectionsPage() {
               <div className="row-actions">
                 <Button variant="outline" onClick={() => setEditing(connection)}>
                   编辑
+                </Button>
+                <Button variant="outline" onClick={() => setSharing(connection)}>
+                  共享连接
                 </Button>
                 {(
                   [
@@ -195,7 +201,22 @@ export default function ConnectionsPage() {
           ) : null}
         </DialogContent>
       </Dialog>
+      <IncomingShares devices={devices.data ?? []} />
       <OpenApiPanel />
+      <Dialog
+        open={Boolean(sharing)}
+        onOpenChange={(open) => {
+          if (!open) setSharing(undefined);
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>共享 {sharing?.name}</DialogTitle>
+            <DialogDescription>按接收账号授予能力，并明确选择凭证使用方式。</DialogDescription>
+          </DialogHeader>
+          {sharing && <ConnectionShares connectionId={sharing.id} />}
+        </DialogContent>
+      </Dialog>
       <ImportPanel devices={devices.data ?? []} />
     </>
   );

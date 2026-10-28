@@ -5,9 +5,15 @@ import type { Services } from '../../services.js';
 import { previewOpenApi } from './importService.js';
 import { withExecution } from '../mcp/executionContext.js';
 import { AppError } from '../../shared/errors.js';
+import { assertCredentialManager } from '../authorizations/credentialScope.js';
 import type { ConnectionContext } from '../mcp/adapter.js';
 export function openApiRoutes(services: Services) {
   const app = new Hono<ApiEnv>();
+  async function contextFor(ownerId: string, id: string) {
+    const context = await services.connections.context(ownerId, id);
+    assertCredentialManager(context);
+    return context;
+  }
   async function identityChanged(context: ConnectionContext) {
     await services.connections.closeBinding(context);
     await services.connections.bindings.invalidate(context);
@@ -24,7 +30,7 @@ export function openApiRoutes(services: Services) {
     ),
   );
   app.use('/connections/:id/bindings/:bindingId/openapi/*', async (c, next) => {
-    await services.connections.owned(owner(c), paramId(c));
+    await services.connections.accessible(owner(c), paramId(c));
     const binding = (await services.connections.bindings.list(owner(c), paramId(c))).find(
       (row) => row.id === c.req.param('bindingId'),
     );
@@ -48,13 +54,13 @@ export function openApiRoutes(services: Services) {
     app.get(prefix, async (c) =>
       c.json(
         await services.apiOAuth.status(
-          await services.connections.context(owner(c), paramId(c)),
+          await contextFor(owner(c), paramId(c)),
           z.string().min(1).parse(c.req.param('scheme')),
         ),
       ),
     );
     app.delete(prefix, async (c) => {
-      const context = await services.connections.context(owner(c), paramId(c));
+      const context = await contextFor(owner(c), paramId(c));
       await services.connections.closeBinding(context);
       const result = await services.apiOAuth.revoke(
         context,
@@ -65,14 +71,14 @@ export function openApiRoutes(services: Services) {
       return c.json(result);
     });
     app.post(`${prefix}/start`, async (c) => {
-      const context = await services.connections.context(owner(c), paramId(c));
+      const context = await contextFor(owner(c), paramId(c));
       await identityChanged(context);
       return c.json(
         await services.apiOAuth.start(context, z.string().min(1).parse(c.req.param('scheme'))),
       );
     });
     app.get(`${prefix}/callback`, async (c) => {
-      const context = await services.connections.context(owner(c), paramId(c));
+      const context = await contextFor(owner(c), paramId(c));
       const result = await services.apiOAuth.complete(
         context,
         z.string().min(1).parse(c.req.param('scheme')),

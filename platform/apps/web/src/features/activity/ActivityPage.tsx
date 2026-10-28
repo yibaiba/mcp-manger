@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Input } from '../../components/ui/input.js';
-import { Field } from '../../components/shared/Controls.js';
+import { Disclosure } from '../../components/shared/Disclosure.js';
+import { Button } from '../../components/ui/button.js';
+import { Field, Code } from '../../components/shared/Controls.js';
 import { useQuery } from '@tanstack/react-query';
 import { Card } from '../../components/ui/card.js';
 import {
@@ -16,18 +18,34 @@ import { Action, date, Empty, Feedback, Status } from '../../components/shared/C
 
 export default function ActivityPage() {
   const [filters, setFilters] = useState({
+    from: '',
+    before: '',
+    toolId: '',
     profileId: '',
     taskId: '',
     connectionId: '',
     deviceId: '',
     status: '',
   });
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{ count: number; token: string } | null>(null);
   const search = new URLSearchParams(
     Object.entries(filters).filter(([, value]) => value),
   ).toString();
   const calls = useQuery({
-    queryKey: ['calls', search],
-    queryFn: () => api<Call[]>(`/calls?${search}`),
+    queryKey: ['calls', search, cursor],
+    queryFn: () =>
+      api<{ items: Call[]; nextCursor: string | null }>(
+        `/activity/calls?${search}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+      ),
+    refetchInterval: 5000,
+  });
+  const stats = useQuery({
+    queryKey: ['call-stats', search],
+    queryFn: () =>
+      api<{ status: string; count: number; meanDurationMs: number | null }[]>(
+        `/activity/calls/stats?${search}`,
+      ),
     refetchInterval: 5000,
   });
   const tools = useQuery({ queryKey: ['tools'], queryFn: () => api<Tool[]>('/tools') });
@@ -51,6 +69,9 @@ export default function ActivityPage() {
             key={key}
             label={
               {
+                from: '开始时间（ISO 8601，含时区）',
+                before: '结束时间（不含，ISO 8601）',
+                toolId: '工具 ID',
                 profileId: 'Agent ID',
                 taskId: '任务 ID',
                 connectionId: '连接 ID',
@@ -61,17 +82,65 @@ export default function ActivityPage() {
           >
             <Input
               value={filters[key]}
-              onChange={(e) => setFilters({ ...filters, [key]: e.target.value })}
+              onChange={(e) => {
+                setFilters({ ...filters, [key]: e.target.value });
+                setCursor(null);
+                setPreview(null);
+              }}
             />
           </Field>
         ))}
       </div>
+      <Feedback error={stats.error} />
+      <div className="overview-grid">
+        {stats.data?.map((row) => (
+          <Card className="p-4" key={row.status}>
+            <Status value={row.status} />
+            <strong>{row.count} 次</strong>
+            <small>
+              平均耗时 {row.meanDurationMs === null ? '—' : `${Math.round(row.meanDurationMs)} ms`}
+            </small>
+          </Card>
+        ))}
+      </div>
+      <div className="my-4 flex flex-wrap items-center gap-3">
+        <Action
+          action={async () =>
+            setPreview(
+              await api('/activity/calls/cleanup/preview', {
+                method: 'POST',
+                body: JSON.stringify(Object.fromEntries(new URLSearchParams(search))),
+              }),
+            )
+          }
+        >
+          预览清理当前范围
+        </Action>
+        {preview ? (
+          <>
+            <span>将清理 {preview.count} 条已结束记录，运行和等待回答的调用保留。</span>
+            <Action
+              danger
+              action={async () => {
+                await api('/activity/calls/cleanup', {
+                  method: 'POST',
+                  body: JSON.stringify({ token: preview.token }),
+                });
+                setPreview(null);
+                setCursor(null);
+              }}
+            >
+              执行清理
+            </Action>
+          </>
+        ) : null}
+      </div>
       <Card className="panel">
         <div className="panel-heading">
-          <h2>最近 100 次调用</h2>
+          <h2>调用记录 · 每页 50 条</h2>
           <span className="label">每 5 秒刷新</span>
         </div>
-        {calls.data?.length ? (
+        {calls.data?.items.length ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -83,7 +152,7 @@ export default function ActivityPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {calls.data.map((call) => (
+              {calls.data.items.map((call) => (
                 <TableRow key={call.id}>
                   <TableCell>
                     <Status value={call.status} />
@@ -112,10 +181,13 @@ export default function ActivityPage() {
                       : '—'}
                   </TableCell>
                   <TableCell className="max-w-sm whitespace-normal">
+                    <Disclosure title="调用详情">
+                      <Code value={call} />
+                    </Disclosure>
                     {call.error ? (
                       <span className="text-destructive break-all">{call.error}</span>
                     ) : null}
-                    {call.status === 'running' ? (
+                    {['running', 'waiting'].includes(call.status) ? (
                       <Action action={() => api(`/calls/${call.id}/cancel`, { method: 'POST' })}>
                         请求取消
                       </Action>
@@ -129,6 +201,18 @@ export default function ActivityPage() {
           <Empty>尚无调用记录。</Empty>
         )}
       </Card>
+      <div className="my-4 flex flex-wrap items-center gap-3">
+        <Button variant="outline" disabled={!cursor} onClick={() => setCursor(null)}>
+          返回第一页
+        </Button>
+        <Button
+          variant="outline"
+          disabled={!calls.data?.nextCursor}
+          onClick={() => setCursor(calls.data!.nextCursor)}
+        >
+          下一页
+        </Button>
+      </div>
     </>
   );
 }

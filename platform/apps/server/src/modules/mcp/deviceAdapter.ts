@@ -20,7 +20,10 @@ export function createDeviceAdapter(
     connectionId: context.id,
     config: {
       ...context.config,
-      localIdentity: context.identity === 'default' ? 'default' : context.bindingId,
+      localIdentity:
+        (context.credentialScope?.identity ?? context.identity) === 'default'
+          ? 'default'
+          : (context.credentialScope?.bindingId ?? context.bindingId),
     },
     sessionId,
     bindingId: context.bindingId,
@@ -89,9 +92,7 @@ export function createDeviceAdapter(
               method: 'interaction.cancel',
               params: { ...params, requestState: state },
             })
-            .catch((error: unknown) =>
-              console.error('Device interaction cancellation failed', error),
-            );
+            .catch(() => broker.diagnostic('DEVICE_INTERACTION_CANCEL_FAILED'));
         };
         interactions.set(state, () => signal.removeEventListener('abort', cancel));
         signal.addEventListener('abort', cancel, { once: true });

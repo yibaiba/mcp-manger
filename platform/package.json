@@ -24,7 +24,8 @@
     "connector:installers:setup": "node scripts/setup-connector-packaging.mjs",
     "connector:installers:build": "node scripts/package-connector-desktop.mjs",
     "test:pi": "node scripts/check.mjs 60 pnpm exec tsx tests/pi-smoke.mts",
-    "backup": "node scripts/backup.mjs"
+    "backup": "node scripts/backup.mjs",
+    "user:role": "tsx scripts/user-role.mts"
   },
   "packageManager": "pnpm@10.12.4",
   "dependencies": {

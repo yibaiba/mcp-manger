@@ -1,3 +1,4 @@
+import { activeUser } from '../users/userAccess.js';
 import { randomUUID } from 'node:crypto';
 import { DeviceSerial, verifyDeviceMac } from './deviceAuthentication.js';
 import {
@@ -72,6 +73,7 @@ export class DeviceService {
           .returning();
         if (!pairing || (pairing.deviceId ?? undefined) !== deviceId)
           throw new AppError('PAIRING_INVALID', '配对码无效、已使用或已过期，或设备不匹配', 401);
+        await activeUser(tx, pairing.ownerId);
         const deviceSecret = secretToken();
         if (deviceId) {
           const [device] = await tx
@@ -120,6 +122,7 @@ export class DeviceService {
         Date.parse(input.challenge.expiresAt) <= Date.now()
       )
         throw new AppError('DEVICE_UNAUTHORIZED', '设备认证失败', 401);
+      await activeUser(this.db, device.ownerId);
       const secret = deviceAuthBytes.parse(
         this.deps.vault.open(device.secretEncrypted, this.scope(device)),
       );
